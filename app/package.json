@@ -1,0 +1,15 @@
+{
+  "name": "buranchi-compass",
+  "version": "1.0.0",
+  "description": "Buranchi Compass — local content planning assistant",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "node-cron": "^4.6.0"
+  }
+}

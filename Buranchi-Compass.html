@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buranchi Compass</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Inclusive+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Parisienne&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --taupe:#726654; --espresso:#2B221B; --espresso2:#362B21; --yellow:#FFF256; --green:#CBE55E;
+    --sage:#8B9B5E; --cream:#FCFBF7; --sky:#91D2FC; --white:#FFFFFF; --black:#000000;
+    --border:#E5DFD0; --text-sec:#786C5C;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{margin:0; font-family:'Inclusive Sans', sans-serif; background:#EFEAE0; color:var(--espresso); line-height:1.5;}
+  .serif{font-family:'Fraunces', serif;}
+  .script{font-family:'Parisienne', cursive;}
+  a{color:inherit;}
+
+  /* ---------- shell ---------- */
+  .shell{display:flex; min-height:100vh;}
+  nav.toc{
+    width:230px; flex-shrink:0; background:var(--espresso); color:var(--cream);
+    position:sticky; top:0; height:100vh; overflow-y:auto; padding:22px 0 30px;
+  }
+  nav.toc .toc-brand{
+    font-family:'Fraunces', serif; font-size:17px; padding:0 22px 16px; border-bottom:1px solid rgba(252,251,247,.15); margin-bottom:10px;
+  }
+  nav.toc .toc-brand span{color:var(--yellow);}
+  nav.toc a{
+    display:flex; align-items:center; gap:9px; color:var(--cream); text-decoration:none;
+    font-size:13px; padding:9px 22px; opacity:.72; border-left:3px solid transparent;
+  }
+  nav.toc a:hover, nav.toc a.active{opacity:1; background:rgba(252,251,247,.06); border-left-color:var(--yellow);}
+  nav.toc a .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0; background:var(--sage);}
+  nav.toc .section-label{
+    font-size:10px; text-transform:uppercase; letter-spacing:.12em; opacity:.45; padding:16px 22px 6px;
+  }
+  nav.toc .toc-stats{padding:14px 22px 4px;}
+  nav.toc .toc-stats .row{display:flex; justify-content:space-between; font-size:11.5px; padding:4px 0; opacity:.75;}
+  nav.toc .toc-stats .row b{opacity:1; color:var(--yellow);}
+
+  main{flex:1; min-width:0;}
+
+  /* ---------- hero header ---------- */
+  header.hero{
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.02) 0px, rgba(255,255,255,.02) 1px, transparent 1px, transparent 3px),
+      linear-gradient(135deg, var(--espresso), var(--espresso2));
+    color:var(--cream); padding:40px 44px 34px;
+    display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:18px;
+  }
+  header.hero .eyebrow{font-size:11px; text-transform:uppercase; letter-spacing:.16em; color:var(--yellow); font-weight:600;}
+  header.hero h1{font-family:'Fraunces', serif; font-weight:500; font-size:30px; margin:10px 0 6px;}
+  header.hero p{font-size:13.5px; opacity:.8; max-width:480px; margin:0;}
+  header.hero .actions{display:flex; gap:10px; flex-wrap:wrap;}
+  button, .btn{
+    font-family:'Inclusive Sans', sans-serif; font-size:12.5px; font-weight:600; cursor:pointer;
+    border-radius:8px; padding:10px 18px; border:1px solid transparent; transition:opacity .15s;
+  }
+  button:hover{opacity:.88;}
+  .btn-primary{background:var(--yellow); color:#3A3300; border-color:var(--yellow);}
+  .btn-ghost{background:transparent; color:var(--cream); border-color:rgba(252,251,247,.3);}
+
+  /* ---------- kpi row ---------- */
+  .kpi-row{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; padding:26px 44px 0;}
+  .kpi-card{
+    background:var(--white); border-radius:12px; padding:16px 18px; border:1px solid var(--border);
+    border-top:4px solid var(--sage); box-shadow:0 1px 2px rgba(43,34,27,.04);
+  }
+  .kpi-card .lab{font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-sec); margin-bottom:6px;}
+  .kpi-card .val{font-family:'Fraunces', serif; font-size:26px; font-weight:600;}
+  .kpi-card .val small{font-family:'Inclusive Sans'; font-size:13px; font-weight:600; color:var(--text-sec);}
+
+  /* ---------- generic panel/section ---------- */
+  section.panel{padding:36px 44px; border-bottom:1px solid #E0D9CB; scroll-margin-top:20px;}
+  section.panel.alt{background:#F5F1E8;}
+  h2.panel-title{font-family:'Fraunces', serif; font-size:21px; font-weight:500; margin:0 0 4px; color:var(--espresso);}
+  .panel-sub{font-size:12.5px; color:var(--text-sec); margin:0 0 20px;}
+
+  .grid-2{display:grid; grid-template-columns:1.1fr .9fr; gap:24px; align-items:start;}
+  @media (max-width:1080px){ .grid-2{grid-template-columns:1fr;} }
+
+  .card-block{background:var(--white); border:1px solid var(--border); border-radius:12px; padding:22px 24px; box-shadow:0 1px 2px rgba(43,34,27,.04);}
+
+  fieldset{border:none; padding:0; margin:0;}
+  label{display:block; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--taupe); font-weight:700; margin-bottom:5px;}
+  .field{margin-bottom:14px;}
+  input[type=text], select, textarea{
+    width:100%; font-family:'Inclusive Sans', sans-serif; font-size:13px; padding:9px 11px;
+    border:1px solid var(--border); border-radius:8px; background:var(--cream); color:var(--espresso);
+  }
+  input:focus, select:focus, textarea:focus{outline:none; border-color:var(--sage); background:var(--white);}
+  textarea{resize:vertical; min-height:64px;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .chiprow{display:flex; gap:8px; flex-wrap:wrap; margin-top:2px;}
+  .chip-toggle{
+    font-size:11.5px; padding:7px 13px; border-radius:100px; border:1px solid var(--border);
+    background:var(--cream); cursor:pointer; user-select:none; font-weight:600;
+  }
+  .chip-toggle.active{background:var(--espresso); color:var(--cream); border-color:var(--espresso);}
+  .btn-add-post{width:100%; margin-top:6px; padding:12px; font-size:13px;}
+
+  /* rules + intel */
+  .rule-item{display:flex; gap:9px; align-items:flex-start; font-size:12.5px; line-height:1.45; margin-bottom:11px;}
+  .rule-item .mark{flex-shrink:0; width:17px; height:17px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; margin-top:1px;}
+  .rule-item.ok .mark{background:var(--green); color:#22331A;}
+  .rule-item.pending .mark{background:#EFE9DA; color:#9a8f7a;}
+  .rule-item span.txt{opacity:.8;}
+  .rule-item.ok span.txt{opacity:1;}
+
+  .intel-note{
+    background:#FFF9DE; border:1px solid #EFE2A0; color:#6b5d1f;
+    border-radius:10px; padding:14px 16px; font-size:12.5px; margin-top:18px; line-height:1.55;
+  }
+  .intel-note b{display:block; margin-bottom:5px; font-size:11px; text-transform:uppercase; letter-spacing:.05em;}
+
+  .paste-card{margin-top:18px;}
+  .paste-card textarea{min-height:110px; font-family:'SFMono-Regular',Consolas,monospace; font-size:11.5px;}
+
+  /* ---------- calendar ---------- */
+  .cal-wrap{overflow-x:auto; background:var(--white); border:1px solid var(--border); border-radius:12px;}
+  table.calendar{border-collapse:collapse; width:100%; min-width:720px; font-size:12.5px;}
+  table.calendar th{text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--taupe); padding:11px 14px; border-bottom:2px solid var(--espresso);}
+  table.calendar td{padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:top;}
+  table.calendar tr:last-child td{border-bottom:none;}
+  table.calendar tr:hover td{background:#FBF7EC;}
+  .fmt-pill{display:inline-flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:100px; text-transform:uppercase; letter-spacing:.04em;}
+  .fmt-pill.feed{background:#FFF9CE; color:#7A6B00;}
+  .fmt-pill.story{background:#E4F4FE; color:#1C6E96;}
+  .event-flag{display:inline-block; font-size:10px; font-weight:700; color:#fff; background:var(--sage); padding:2px 7px; border-radius:5px; margin-left:6px; text-transform:uppercase; letter-spacing:.04em;}
+  .row-actions button{padding:5px 11px; font-size:11px; background:var(--cream); border:1px solid var(--border); border-radius:6px;}
+  .row-actions button:hover{background:#F5EBE0;}
+
+  /* ---------- post preview cards ---------- */
+  .cards{display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:20px; margin-top:24px;}
+  .card{background:var(--white); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(43,34,27,.04);}
+  .mockup{position:relative; overflow:hidden; background-size:cover;}
+  .mockup.light{background-color:#FBF6E9; background-image:repeating-linear-gradient(45deg, rgba(0,0,0,.02) 0px, rgba(0,0,0,.02) 1px, transparent 1px, transparent 6px);}
+  .mockup.dark{background-color:var(--espresso); background-image:repeating-linear-gradient(45deg, rgba(255,255,255,.03) 0px, rgba(255,255,255,.03) 1px, transparent 1px, transparent 6px);}
+  .mockup.ratio-feed{aspect-ratio:4/5;}
+  .mockup.ratio-story{aspect-ratio:9/16;}
+  .photo-card{position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); width:78%; aspect-ratio:1/1; background:var(--white); border-radius:2px; padding:8px 8px 20px; box-shadow:0 6px 18px rgba(0,0,0,.25);}
+  .photo-card.yellow-frame{padding:8px;}
+  .photo-card.yellow-frame .photo-inner{border:4px solid var(--yellow);}
+  .photo-inner{width:100%; height:100%; background:repeating-linear-gradient(135deg, #D9D2C2 0px, #D9D2C2 8px, #CFC7B4 8px, #CFC7B4 16px); display:flex; align-items:center; justify-content:center; text-align:center; padding:6px;}
+  .photo-inner span{font-size:8px; line-height:1.3; color:#6b6252; font-weight:600; text-transform:uppercase; letter-spacing:.02em;}
+  .badge{position:absolute; font-size:7.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:4px 8px; border-radius:20px; background:var(--sage); color:#fff; box-shadow:0 3px 8px rgba(0,0,0,.2);}
+  .badge.top{top:8px; right:8px;} .badge.bottom{bottom:12%; left:8px;}
+  .headline-block{position:absolute; left:8%; right:8%;}
+  .headline-block.pos-top{top:6%;} .headline-block.pos-bottom{bottom:5%;}
+  .headline-block .h{font-family:'Fraunces', serif; font-weight:500; line-height:1.05; font-size:16px; text-shadow:0 1px 6px rgba(0,0,0,.12);}
+  .headline-block .h.script{font-family:'Parisienne', cursive; font-weight:400;}
+  .headline-block .h.sans{font-family:'Inclusive Sans', sans-serif; font-weight:700; text-transform:uppercase; letter-spacing:.02em; font-size:13px;}
+  .headline-block .s{font-family:'Inclusive Sans', sans-serif; font-size:9px; margin-top:4px; line-height:1.3;}
+  .mockup.light .headline-block .h{color:var(--espresso);} .mockup.light .headline-block .s{color:#4A4033;}
+  .mockup.dark .headline-block .h{color:var(--cream);} .mockup.dark .headline-block .s{color:#E7E1D2;}
+  .card-meta{padding:13px 15px;}
+  .card-meta .kicker{font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--sage); font-weight:700;}
+  .card-meta .cap{font-size:11.5px; margin-top:5px; color:#5a5040; max-height:50px; overflow:hidden;}
+  .card-meta .row-actions{margin-top:9px;}
+
+  .empty{padding:50px 20px; text-align:center; color:#a89a80; background:var(--white); border:1px dashed var(--border); border-radius:12px; margin-top:20px;}
+  .empty .big{font-family:'Fraunces', serif; font-size:18px; margin-bottom:6px; color:var(--espresso);}
+
+  footer.foot{padding:30px 44px 50px; background:var(--espresso); color:var(--cream);}
+  footer.foot .foot-logo{font-family:'Fraunces', serif; font-size:13px; opacity:.6;}
+  footer.foot p{font-size:12px; opacity:.55; max-width:600px; line-height:1.6; margin:6px 0 0;}
+
+  @media (max-width:860px){
+    nav.toc{display:none;}
+    header.hero, section.panel, .kpi-row{padding-left:22px; padding-right:22px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="toc" id="toc">
+    <div class="toc-brand">buranchi <span>compass</span></div>
+    <div class="section-label">Navigate</div>
+    <a href="#compose"><span class="dot"></span>Compose a post</a>
+    <a href="#calendar"><span class="dot"></span>Calendar</a>
+    <a href="#previews"><span class="dot"></span>Post previews</a>
+    <div class="section-label">This plan</div>
+    <div class="toc-stats">
+      <div class="row"><span>Posts</span><b id="toc-total">0</b></div>
+      <div class="row"><span>Feed</span><b id="toc-feed">0</b></div>
+      <div class="row"><span>Story</span><b id="toc-story">0</b></div>
+      <div class="row"><span>Event-arm</span><b id="toc-event">0%</b></div>
+    </div>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <div>
+        <div class="eyebrow">Content planning assistant</div>
+        <h1>Buranchi Compass</h1>
+        <p>Build a plan, check it against brand standing rules, and export it in Buranchi's house style.</p>
+      </div>
+      <div class="actions">
+        <button class="btn-ghost" id="btn-clear">Clear all</button>
+        <button class="btn-primary" id="btn-export">Export content plan (HTML)</button>
+      </div>
+    </header>
+
+    <section class="kpi-row">
+      <div class="kpi-card"><div class="lab">Total posts</div><div class="val" id="kpi-total">0</div></div>
+      <div class="kpi-card" style="border-top-color:#FFF256;"><div class="lab">Feed</div><div class="val" id="kpi-feed">0 <small>of total</small></div></div>
+      <div class="kpi-card" style="border-top-color:#91D2FC;"><div class="lab">Story</div><div class="val" id="kpi-story">0 <small>of total</small></div></div>
+      <div class="kpi-card" style="border-top-color:#726654;"><div class="lab">Event-arm share</div><div class="val" id="kpi-event">0%</div></div>
+    </section>
+
+    <section class="panel" id="compose">
+      <h2 class="panel-title">Compose a post</h2>
+      <p class="panel-sub">Fill this in yourself, or paste a plan drafted in a Buranchi Compass chat session using the assistant instructions.</p>
+
+      <div class="grid-2">
+        <div class="card-block">
+          <fieldset>
+            <div class="row2 field">
+              <div><label>Date</label><input type="text" id="f-date" placeholder="Aug 1"></div>
+              <div><label>Day</label>
+                <select id="f-day"><option>Mon</option><option>Tue</option><option>Wed</option><option>Thu</option><option>Fri</option><option>Sat</option><option>Sun</option></select>
+              </div>
+            </div>
+            <div class="row2 field">
+              <div><label>Format</label>
+                <select id="f-format"><option value="feed">Feed (4:5)</option><option value="story">Story (9:16)</option></select>
+              </div>
+              <div><label>Base</label>
+                <select id="f-base"><option value="light">Light</option><option value="dark">Dark</option></select>
+              </div>
+            </div>
+            <div class="field"><label>Headline</label><input type="text" id="f-headline" placeholder="Alam Sutera's Best-Kept Secret"></div>
+            <div class="row2 field">
+              <div><label>Headline type</label>
+                <select id="f-htype"><option value="serif">Serif</option><option value="script">Script</option><option value="sans">Sans</option></select>
+              </div>
+              <div><label>Headline position</label>
+                <select id="f-hpos"><option value="bottom">Bottom</option><option value="top">Top</option></select>
+              </div>
+            </div>
+            <div class="field"><label>Sub-headline</label><input type="text" id="f-sub" placeholder="Pool, greenery, and a menu worth the trip."></div>
+            <div class="field"><label>Persona</label>
+              <select id="f-persona"><option>Photo-driven visitor</option><option>Open Door professional</option><option>Both</option></select>
+            </div>
+            <div class="field"><label>Business priority</label><input type="text" id="f-priority" placeholder="Conversion / database capture / local awareness / event-arm"></div>
+            <div class="field"><label>Photo direction</label><textarea id="f-photo" placeholder="Hero photo of the pool + greenery area, daytime, candid"></textarea></div>
+            <div class="field"><label>Caption</label><textarea id="f-caption" placeholder="Instagram caption, on-voice..."></textarea></div>
+            <div class="field"><label>CTA / data capture</label><input type="text" id="f-cta" placeholder="Save post + WhatsApp list signup"></div>
+            <div class="field"><label>Badge label (optional)</label><input type="text" id="f-badge" placeholder="PRIVATE EVENTS"></div>
+            <div class="field"><label>Event-arm post?</label>
+              <div class="chiprow">
+                <div class="chip-toggle" data-toggle="event" data-val="false">No</div>
+                <div class="chip-toggle" data-toggle="event" data-val="true">Yes — event / community class</div>
+              </div>
+            </div>
+            <div class="field"><label>Frame</label>
+              <div class="chiprow">
+                <div class="chip-toggle" data-toggle="frame" data-val="">Plain</div>
+                <div class="chip-toggle" data-toggle="frame" data-val="yellow-frame">Yellow frame</div>
+              </div>
+            </div>
+            <button class="btn-primary btn-add-post" id="btn-add">+ Add post to plan</button>
+          </fieldset>
+
+          <div class="paste-card">
+            <label>Paste a Compass plan (posts array)</label>
+            <textarea id="paste-box" placeholder="Paste the ```js posts array from a Compass chat session here..."></textarea>
+            <button class="btn-ghost" id="btn-paste" style="width:100%; margin-top:8px; border:1px solid var(--border); color:var(--espresso);">Load pasted plan</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="card-block">
+            <h2 class="panel-title" style="font-size:15.5px;">Standing rules — this post</h2>
+            <div id="rules-list" style="margin-top:14px;"></div>
+          </div>
+          <div class="intel-note">
+            <b>Competitor intelligence</b>
+            No direct pool-café competitor exists nearby — keep leading with the venue, not drinks alone. Short carousels are outperforming reels right now. Pet-friendly / community-class content is trending — give event posts real weight.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel alt" id="calendar">
+      <h2 class="panel-title">This month's plan</h2>
+      <p class="panel-sub">Every post added so far, in calendar order.</p>
+      <div class="cal-wrap">
+        <table class="calendar">
+          <thead><tr><th>Post</th><th>Date</th><th>Day</th><th>Format</th><th>Headline</th><th>Persona</th><th>Priority</th><th></th></tr></thead>
+          <tbody id="cal-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="previews">
+      <h2 class="panel-title">Post previews</h2>
+      <p class="panel-sub">Mockups follow Buranchi's scrapbook design system — matted photo, textured base, editorial headline.</p>
+      <div class="cards" id="cards"></div>
+      <div class="empty" id="empty-state">
+        <div class="big">No posts yet</div>
+        <div>Add one above, or paste a plan from a Compass chat session.</div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <div class="foot-logo">buranchi compass</div>
+      <p>Built on Buranchi's Content Plan &amp; Design System — brand context, voice, and visual language sourced from <code>_context/</code> and <code>_templates/</code>. Photo placeholders describe direction only.</p>
+    </footer>
+  </main>
+</div>
+
+<script>
+const STORAGE_KEY = 'buranchi-compass-posts';
+function loadStored(){
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch(e){ return []; }
+}
+let posts = loadStored();
+
+const $ = id => document.getElementById(id);
+let toggleState = { event: 'false', frame: '' };
+
+document.querySelectorAll('.chip-toggle').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const group = chip.dataset.toggle;
+    document.querySelectorAll(`.chip-toggle[data-toggle="${group}"]`).forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    toggleState[group] = chip.dataset.val;
+    renderRulesChecklist();
+  });
+});
+document.querySelector('.chip-toggle[data-toggle="event"][data-val="false"]').classList.add('active');
+document.querySelector('.chip-toggle[data-toggle="frame"][data-val=""]').classList.add('active');
+
+function currentDraft(){
+  return {
+    date: $('f-date').value.trim(),
+    day: $('f-day').value,
+    format: $('f-format').value,
+    base: $('f-base').value,
+    headline: $('f-headline').value.trim(),
+    headlineType: $('f-htype').value,
+    headlinePos: $('f-hpos').value,
+    sub: $('f-sub').value.trim(),
+    persona: $('f-persona').value,
+    priority: $('f-priority').value.trim(),
+    photo: $('f-photo').value.trim(),
+    caption: $('f-caption').value.trim(),
+    cta: $('f-cta').value.trim(),
+    badge: $('f-badge').value.trim(),
+    badgePos: $('f-badge').value.trim() ? 'top' : '',
+    event: toggleState.event === 'true',
+    frame: toggleState.frame,
+    doodle: [],
+    brief: []
+  };
+}
+
+function renderRulesChecklist(){
+  const d = currentDraft();
+  const rules = [
+    { ok: /pool|greenery|venue|space/i.test(d.headline + d.sub + d.caption) || !d.headline, label: 'Leads with the venue (pool/greenery/space), not drinks/food alone' },
+    { ok: d.persona && d.persona.length > 0, label: 'Persona specified — not defaulted by habit' },
+    { ok: d.cta.length > 0, label: 'Has a CTA / data-capture step (booking, WhatsApp, RSVP, save)' },
+    { ok: !/don.?t miss out|limited time|act now|elevate|premium|unmatched/i.test(d.headline + d.sub + d.caption), label: 'No urgency/corporate language ("don\'t miss out", "elevate", "premium")' },
+    { ok: d.event ? true : null, label: 'Event-arm content gets real weight (if applicable)' },
+  ];
+  const box = $('rules-list');
+  box.innerHTML = rules.map(r => {
+    const cls = r.ok === true ? 'ok' : 'pending';
+    const mark = r.ok === true ? '✓' : '·';
+    return `<div class="rule-item ${cls}"><div class="mark">${mark}</div><span class="txt">${r.label}</span></div>`;
+  }).join('');
+}
+['f-headline','f-sub','f-caption','f-cta','f-persona'].forEach(id => $(id).addEventListener('input', renderRulesChecklist));
+renderRulesChecklist();
+
+$('btn-add').addEventListener('click', () => {
+  const d = currentDraft();
+  if(!d.headline || !d.date){ alert('Add at least a date and headline.'); return; }
+  posts.push(d);
+  save(); render();
+  ['f-date','f-headline','f-sub','f-priority','f-photo','f-caption','f-cta','f-badge'].forEach(id => $(id).value = '');
+  document.querySelector('.chip-toggle[data-toggle="event"][data-val="false"]').click();
+  document.querySelector('.chip-toggle[data-toggle="frame"][data-val=""]').click();
+});
+
+$('btn-paste').addEventListener('click', () => {
+  const raw = $('paste-box').value.trim();
+  if(!raw) return;
+  try {
+    const cleaned = raw.replace(/^```(js|json)?/i,'').replace(/```$/,'').trim();
+    const arr = new Function('return ' + cleaned)();
+    if(!Array.isArray(arr)) throw new Error('not an array');
+    posts = posts.concat(arr);
+    save(); render();
+    $('paste-box').value = '';
+  } catch(e){
+    alert('Could not parse that plan. Make sure it\'s a valid posts array. (' + e.message + ')');
+  }
+});
+
+$('btn-clear').addEventListener('click', () => {
+  if(!confirm('Clear all posts in this plan?')) return;
+  posts = []; save(); render();
+});
+
+function save(){ try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(posts)); }catch(e){} }
+
+function render(){
+  const total = posts.length;
+  const feed = posts.filter(p=>p.format==='feed').length;
+  const story = posts.filter(p=>p.format==='story').length;
+  const eventPct = total ? Math.round(100*posts.filter(p=>p.event).length/total) : 0;
+
+  $('kpi-total').textContent = total;
+  $('kpi-feed').innerHTML = feed + ' <small>of ' + total + '</small>';
+  $('kpi-story').innerHTML = story + ' <small>of ' + total + '</small>';
+  $('kpi-event').textContent = eventPct + '%';
+  $('toc-total').textContent = total;
+  $('toc-feed').textContent = feed;
+  $('toc-story').textContent = story;
+  $('toc-event').textContent = eventPct + '%';
+
+  $('empty-state').style.display = total ? 'none' : 'block';
+
+  const calBody = $('cal-body');
+  calBody.innerHTML = posts.map((p,i) => `
+    <tr>
+      <td>#${String(i+1).padStart(2,'0')}</td>
+      <td>${esc(p.date)}</td>
+      <td>${esc(p.day)}</td>
+      <td><span class="fmt-pill ${p.format}">${p.format}</span>${p.event ? '<span class="event-flag">event</span>' : ''}</td>
+      <td>${esc(p.headline)}</td>
+      <td>${esc(p.persona||'')}</td>
+      <td>${esc(p.priority||'')}</td>
+      <td class="row-actions"><button onclick="removePost(${i})">Remove</button></td>
+    </tr>`).join('');
+
+  const cards = $('cards');
+  cards.innerHTML = posts.map((p,i) => mockupCard(p,i)).join('');
+}
+
+function removePost(i){ posts.splice(i,1); save(); render(); }
+
+function esc(s){ return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function mockupCard(p, i){
+  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
+  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
+  const badgeHtml = p.badge ? `<div class="badge ${p.badgePos||'top'}">${esc(p.badge)}</div>` : '';
+  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
+  const photoInner = p.frame === 'yellow-frame'
+    ? `<div class="photo-inner" style="border:4px solid var(--yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
+    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
+  return `
+  <div class="card">
+    <div class="mockup ${p.base} ${ratio}">
+      <div class="${frameClass}">${photoInner}</div>
+      ${badgeHtml}
+      <div class="headline-block pos-${p.headlinePos||'bottom'}">
+        <div class="${hClass}">${esc(p.headline)}</div>
+        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
+      </div>
+    </div>
+    <div class="card-meta">
+      <div class="kicker">${esc(p.date)} · ${p.format}</div>
+      <div class="cap">${esc(p.caption||'').slice(0,120)}</div>
+      <div class="row-actions"><button onclick="removePost(${i})">Remove</button></div>
+    </div>
+  </div>`;
+}
+
+$('btn-export').addEventListener('click', () => {
+  if(!posts.length){ alert('Add at least one post before exporting.'); return; }
+  const html = buildExportHtml(posts);
+  const blob = new Blob([html], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'Buranchi-Content-Plan.html';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+function buildExportHtml(posts){
+  const dataJson = JSON.stringify(posts, null, 2);
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Buranchi — Content Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,700&family=Inclusive+Sans:wght@400;600;700&family=Parisienne&display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Inclusive Sans',sans-serif;background:#EFEAE0;color:#2B221B;}
+.serif{font-family:'Fraunces',serif;} .script{font-family:'Parisienne',cursive;}
+table{border-collapse:collapse;width:100%;margin:24px;} th,td{padding:8px 10px;border-bottom:1px solid #E5DFD0;text-align:left;font-size:13px;}
+th{text-transform:uppercase;font-size:10px;color:#726654;border-bottom:2px solid #2B221B;}
+h1{font-family:'Fraunces',serif;padding:24px;}
+</style></head><body>
+<h1>Buranchi — Content Plan (exported from Compass)</h1>
+<table><thead><tr><th>#</th><th>Date</th><th>Format</th><th>Headline</th><th>Persona</th><th>Priority</th><th>CTA</th></tr></thead><tbody>
+${posts.map((p,i)=>`<tr><td>${i+1}</td><td>${p.date}</td><td>${p.format}</td><td>${p.headline}</td><td>${p.persona||''}</td><td>${p.priority||''}</td><td>${p.cta||''}</td></tr>`).join('\n')}
+</tbody></table>
+<script>window.__buranchiCompassData = ${dataJson};<\/script>
+</body></html>`;
+}
+
+render();
+</script>
+</body>
+</html>

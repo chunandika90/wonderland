@@ -1,0 +1,20 @@
+# Dependencies
+app/node_modules/
+
+# Secrets & credentials — never commit these
+app/deploy-keys/compass_deploy
+app/service-accounts/
+app/data/orgs.json
+app/data/internal-users.json
+*.pem
+*.key
+.env
+.env.*
+
+# Runtime / generated data — diverges between local and live, not source code
+app/data/orgs/
+app/data/posts.json
+
+# OS/editor junk
+.DS_Store
+Thumbs.db

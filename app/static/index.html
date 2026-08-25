@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wonderland</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
+</head>
+<body>
+<div class="app-shell">
+  <div class="overlay" id="sidebar-overlay"></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">wonderland</div>
+    <button class="org-badge" id="org-name-sidebar-wrap" title="Switch client"><span id="org-name">…</span> <span class="client-switch-hint">⇄</span></button>
+    <nav>
+      <div class="nav-group" data-group="overview">
+        <div class="nav-group-label"><span>Overview</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-body">
+          <a href="#dashboard" data-nav="dashboard" data-page="dashboard">Dashboard</a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="agency" id="nav-group-agency" style="display:none;">
+        <div class="nav-group-label"><span>Agency</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-body">
+          <a href="#agencyoverview" data-nav="agencyoverview" data-page="agencyoverview">Agency Overview</a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="analytics">
+        <div class="nav-group-label"><span>Analytics</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-body">
+          <a href="#analytics" data-nav="analytics" data-page="analytics">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            Competitor Dashboard
+          </a>
+          <a href="#competitors" data-nav="competitors" data-page="competitors">Competitors</a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="contentplan">
+        <div class="nav-group-label"><span>Content Plan</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-body">
+          <a href="#generate" class="active" data-nav="generate" data-page="generate">Generate a plan</a>
+          <a href="#calendar" data-nav="calendar" data-page="calendar">Calendar</a>
+          <a href="#previews" data-nav="previews" data-page="previews">Post previews</a>
+          <a href="#history" data-nav="history" data-page="history">Usage history</a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="intelligence">
+        <div class="nav-group-label"><span>Creative Intelligence</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-body">
+          <a href="#creativechat" data-nav="creativechat" data-page="creativechat">Creative Chat</a>
+          <a href="#directorya" data-nav="directorya" data-page="directorya">Directory A</a>
+          <a href="#agentbehavior" data-nav="agentbehavior" data-page="agentbehavior">Agent Behavior &amp; Guardrails</a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="masterconfig">
+        <div class="nav-group-label"><span>Master Config</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-body">
+          <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="brand-context">Brand Context</a>
+          <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="brand-voice">Brand Voice</a>
+          <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="icp">Ideal Customer Profile</a>
+          <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="compass-assistant">Wonderland Assistant Instructions</a>
+        </div>
+      </div>
+    </nav>
+    <div class="foot">Content planning assistant<br>for Buranchi Marketing</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex; align-items:center; gap:14px;">
+        <button class="icon-btn" id="btn-hamburger" title="Menu" aria-label="Menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </button>
+        <div class="title">Wonderland</div>
+      </div>
+      <div class="who">
+        <button class="btn btn-sm btn-outline" id="btn-logout">Sign out</button>
+        <div class="avatar" id="avatar">B</div>
+      </div>
+    </div>
+
+    <div class="page">
+      <div class="page-head">
+        <div>
+          <h1 id="welcome">Welcome back</h1>
+          <p class="sub" id="page-subtitle">Build a plan, check it against brand standing rules, and export it in Buranchi's house style.</p>
+        </div>
+        <div>
+          <div class="date" id="today-date" style="text-align:right; margin-bottom:8px;"></div>
+          <div class="actions" id="content-plan-actions">
+            <button class="btn btn-outline" id="btn-clear">Clear all</button>
+            <button class="btn btn-outline" id="btn-fill-refs">Re-match all references</button>
+            <button class="btn btn-accent" id="btn-export">Export content plan</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-grid" id="content-plan-kpis">
+        <div class="kpi-card">
+          <div class="top-row"><div class="lab">Total posts</div><div class="kpi-icon" style="background:var(--accent-50); color:var(--accent);">◆</div></div>
+          <div class="val" id="kpi-total">0</div>
+          <div class="cap">this plan</div>
+        </div>
+        <div class="kpi-card">
+          <div class="top-row"><div class="lab">Feed</div><div class="kpi-icon" style="background:#FFF4CC; color:#8A6D00;">▦</div></div>
+          <div class="val" id="kpi-feed">0</div>
+          <div class="cap" id="kpi-feed-cap">of 0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="top-row"><div class="lab">Story</div><div class="kpi-icon" style="background:#E4F0FF; color:#1C5EA6;">▮</div></div>
+          <div class="val" id="kpi-story">0</div>
+          <div class="cap" id="kpi-story-cap">of 0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="top-row"><div class="lab">Event-arm share</div><div class="kpi-icon" style="background:var(--success-bg); color:var(--success);">●</div></div>
+          <div class="val" id="kpi-event">0%</div>
+          <div class="cap">target ~10%+</div>
+        </div>
+      </div>
+
+      <section class="section page-view" id="dashboard" data-page="dashboard">
+        <div class="section-head">
+          <h2>Dashboard</h2>
+          <p class="sub">Ringkasan status konten plan untuk organisasi ini.</p>
+        </div>
+
+        <div class="kpi-grid" id="dash-kpis">
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">Total post</div><div class="kpi-icon" style="background:var(--accent-50); color:var(--accent);">◆</div></div>
+            <div class="val" id="dash-kpi-posts">0</div>
+            <div class="cap">di plan ini</div>
+          </div>
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">Due 7 hari ke depan</div><div class="kpi-icon" style="background:#FFF4CC; color:#8A6D00;">▦</div></div>
+            <div class="val" id="dash-kpi-upcoming">0</div>
+            <div class="cap">post terjadwal</div>
+          </div>
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">AI usage (30 hari)</div><div class="kpi-icon" style="background:#F3E8FF; color:#7C3AED;">✦</div></div>
+            <div class="val" id="dash-kpi-aiusage">0</div>
+            <div class="cap" id="dash-kpi-aiusage-cap">0 tokens</div>
+          </div>
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">Status</div><div class="kpi-icon" id="dash-kpi-status-icon" style="background:var(--success-bg); color:var(--success);">●</div></div>
+            <div class="val" id="dash-kpi-status" style="font-size:16px;">Aktif</div>
+            <div class="cap" id="dash-kpi-lastactivity">—</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="section-head"><h2 style="font-size:14px;">Deadline terdekat (7 hari)</h2></div>
+            <div id="dash-deadlines-list"></div>
+          </div>
+          <div class="card">
+            <div class="section-head"><h2 style="font-size:14px;">Activity feed</h2></div>
+            <div id="dash-activity-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="agencyoverview" data-page="agencyoverview">
+        <div class="section-head">
+          <h2>Agency Overview</h2>
+          <p class="sub">Agregat lintas semua klien.</p>
+        </div>
+
+        <div class="kpi-grid" id="agency-kpis">
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">Total klien</div><div class="kpi-icon" style="background:var(--accent-50); color:var(--accent);">◆</div></div>
+            <div class="val" id="agy-kpi-clients">0</div>
+            <div class="cap">Klik tabel untuk drill-down</div>
+          </div>
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">Total post</div><div class="kpi-icon" style="background:#FFF4CC; color:#8A6D00;">▦</div></div>
+            <div class="val" id="agy-kpi-posts">0</div>
+            <div class="cap">Item lintas klien</div>
+          </div>
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">AI usage (30 hari)</div><div class="kpi-icon" style="background:#F3E8FF; color:#7C3AED;">✦</div></div>
+            <div class="val" id="agy-kpi-aiusage">0</div>
+            <div class="cap" id="agy-kpi-aiusage-cap">0 tokens</div>
+          </div>
+          <div class="kpi-card">
+            <div class="top-row"><div class="lab">Klien perlu perhatian</div><div class="kpi-icon" style="background:#FDECEC; color:#DC2626;">●</div></div>
+            <div class="val" id="agy-kpi-atrisk">0</div>
+            <div class="cap">Tanpa aktivitas 7 hari</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0; margin-bottom:20px;">
+          <div class="table-wrap">
+            <table class="plan-table">
+              <thead><tr><th>Klien</th><th>Total post</th><th>Deadline terdekat (7 hari)</th><th>Status</th><th>AI usage (30 hari)</th></tr></thead>
+              <tbody id="agy-clients-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="section-head"><h2 style="font-size:14px;">Deadline terdekat (7 hari)</h2></div>
+            <div id="agy-deadlines-list"></div>
+          </div>
+          <div class="card">
+            <div class="section-head"><h2 style="font-size:14px;">Activity feed</h2></div>
+            <div id="agy-activity-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="analytics" data-page="analytics">
+        <div class="section-head">
+          <h2>Competitor Instagram Analysis</h2>
+          <p class="sub">Up to 25 most recent posts from each of 4 direct competitors, scraped via Apify to inform Buranchi's content strategy.</p>
+        </div>
+        <div class="intel-card" style="margin-bottom:20px;">
+          <b>Reading note</b>
+          AGAIN | Coffee Sound hides its public like counts platform-wide — its engagement rate is computed from comments only and isn't directly comparable to the other three accounts.
+        </div>
+
+        <div class="analytics-toolbar">
+          <div class="analytics-filters">
+            <div class="field" style="max-width:300px; margin-bottom:0;">
+              <label class="f-label">Filter by account</label>
+              <select id="acct-filter"><option value="all">All accounts</option></select>
+            </div>
+            <div class="field" style="max-width:260px; margin-bottom:0;">
+              <label class="f-label">Scrape date</label>
+              <select id="snapshot-filter"></select>
+            </div>
+          </div>
+          <div class="rescrape-block">
+            <button class="btn btn-outline" id="btn-rescrape">Rescrape now</button>
+            <span id="rescrape-status" class="rescrape-status"></span>
+          </div>
+        </div>
+
+        <div class="tab-row">
+          <button class="tab-btn active" id="tab-overview" data-tab="overview">Overview</button>
+          <button class="tab-btn" id="tab-allposts" data-tab="allposts">All Posts</button>
+        </div>
+
+        <div class="empty" id="analytics-empty" style="display:none;">
+          <div class="big">No competitor data yet</div>
+          <div>Click "Rescrape now" once an Apify token is configured for this organization.</div>
+        </div>
+
+        <div class="tab-panel" id="panel-overview">
+          <div class="kpi-grid" id="competitor-kpi-row"></div>
+          <div class="card recs-card" id="recs-card" style="display:none;">
+            <h3 style="margin:0 0 3px; font-size:14.5px;">Content Recommendations</h3>
+            <p class="sub" style="margin:0 0 12px;">Computed live from the selected snapshot — not hand-written, will change as the data changes.</p>
+            <div id="recs-list"></div>
+          </div>
+          <div class="chart-grid">
+            <div class="card chart-card">
+              <h3>Engagement Rate by Content Type</h3>
+              <p class="sub">Average engagement rate (%) per post format, split by account</p>
+              <div class="chart-wrap"><canvas id="chart-type"></canvas></div>
+            </div>
+            <div class="card chart-card">
+              <h3>Top Performing Topics</h3>
+              <p class="sub">Average engagement rate (%) by content category, across all 4 accounts</p>
+              <div class="chart-wrap"><canvas id="chart-topic"></canvas></div>
+            </div>
+            <div class="card chart-card">
+              <h3>Posting Pattern — Day of Week</h3>
+              <p class="sub">Number of posts published on each weekday</p>
+              <div class="chart-wrap"><canvas id="chart-weekday"></canvas></div>
+            </div>
+            <div class="card chart-card">
+              <h3>Posting Frequency (est. posts/week)</h3>
+              <p class="sub">Based on the span of dates covered by each account's most recent posts</p>
+              <div class="chart-wrap"><canvas id="chart-freq"></canvas></div>
+            </div>
+          </div>
+          <div class="card" style="padding:0; margin-top:20px;">
+            <div style="padding:20px 22px 6px;">
+              <h3 style="margin:0 0 3px; font-size:15px;">Top 10 Best-Performing Posts</h3>
+              <p class="sub" style="margin:0 0 14px;">Ranked by engagement rate in the selected snapshot (click a post to open it on Instagram)</p>
+            </div>
+            <div class="table-wrap">
+              <table class="plan-table">
+                <thead><tr><th>#</th><th>Brand</th><th>Type</th><th>Category</th><th>Eng. Rate</th><th>Likes</th><th>Comments</th><th>Posted</th><th>Scraped</th><th>Caption</th></tr></thead>
+                <tbody id="top10-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-allposts" style="display:none;">
+          <div class="card" style="padding:0;">
+            <div style="padding:20px 22px 6px;">
+              <h3 style="margin:0 0 3px; font-size:15px;">All Posts</h3>
+              <p class="sub" id="all-posts-sub" style="margin:0 0 14px;">Click column headers to sort</p>
+            </div>
+            <div class="table-wrap">
+              <table class="plan-table" id="all-table">
+                <thead><tr>
+                  <th data-field="brand_name" style="cursor:pointer;">Brand</th>
+                  <th data-field="post_type" style="cursor:pointer;">Type</th>
+                  <th data-field="category" style="cursor:pointer;">Category</th>
+                  <th data-field="engagement_rate_pct" style="cursor:pointer;">Eng. Rate</th>
+                  <th data-field="likes_display" style="cursor:pointer;">Likes</th>
+                  <th data-field="comments" style="cursor:pointer;">Comments</th>
+                  <th data-field="date" style="cursor:pointer;">Posted</th>
+                  <th>Scraped</th>
+                  <th>Caption</th>
+                </tr></thead>
+                <tbody id="all-body"></tbody>
+              </table>
+            </div>
+            <div class="pagination" id="all-posts-pagination"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="generate" data-page="generate">
+        <div class="section-head">
+          <h2>Generate a plan</h2>
+          <p class="sub">Chat with Claude, then paste the plan here.</p>
+        </div>
+
+        <div class="tab-panel" id="gpanel-claude">
+          <div class="card how-card">
+            <div class="section-head" style="margin-bottom:14px;">
+              <span class="agent-badge agent-claude" style="margin-bottom:8px; display:inline-block;">CLAUDE — CHAT + COPY-PASTE</span>
+            </div>
+            <div class="how-steps">
+              <div class="how-step"><span class="how-num">1</span><div><b>Chat with Claude</b> in this project, using the Wonderland assistant instructions. Ask for what you need — a single post, a week, or a full month.</div></div>
+              <div class="how-step"><span class="how-num">2</span><div><b>Claude writes</b> the headline, caption, photo direction, and design brief for each post, on-voice and checked against brand rules, then gives you a code block.</div></div>
+              <div class="how-step"><span class="how-num">3</span><div><b>Paste that code block below, or attach the .md file</b> — Wonderland turns it into a calendar, checks the standing rules, and lets you preview and export it.</div></div>
+            </div>
+            <div class="how-example">Try asking: <em>"Buatkan rencana konten untuk minggu depan, fokus promo pilates dan pastry baru"</em></div>
+            <div class="paste-block" style="margin-top:18px;">
+              <label class="f-label">Paste a Wonderland plan (posts array)</label>
+              <textarea id="paste-box" placeholder="Paste the ```js posts array from a Wonderland chat session here..."></textarea>
+              <div class="field" style="margin-top:10px;">
+                <label class="f-label">…or attach a .md file</label>
+                <input type="file" id="paste-file" accept=".md,.markdown,.txt">
+              </div>
+              <button class="btn btn-accent" id="btn-paste" style="width:100%; margin-top:10px; padding:11px;">Load pasted plan</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="calendar" data-page="calendar">
+        <div class="section-head">
+          <h2>This month's plan</h2>
+          <p class="sub">Grid view by default — switch to list for the full table.</p>
+        </div>
+        <div id="cal-today-banner" class="cal-today-banner" style="display:none;"></div>
+        <div class="analytics-toolbar" style="margin-bottom:16px;">
+          <div class="analytics-filters">
+            <div class="field" style="max-width:220px; margin-bottom:0;">
+              <label class="f-label">Agent</label>
+              <select id="cal-agent-filter">
+                <option value="all">All agents</option>
+                <option value="gemini">Gemini</option>
+                <option value="gemini-chat">Gemini Chat</option>
+                <option value="intelligence">Gemini Creative</option>
+                <option value="claude">Claude</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:260px; margin-bottom:0;">
+              <label class="f-label">Generated on</label>
+              <select id="cal-date-filter"><option value="all">All dates</option></select>
+            </div>
+          </div>
+          <div class="tab-row cal-view-toggle">
+            <button class="tab-btn active" id="cal-view-grid" data-calview="grid">📅 Grid</button>
+            <button class="tab-btn" id="cal-view-list" data-calview="list">☰ List</button>
+          </div>
+        </div>
+
+        <div id="cal-grid-panel">
+          <div class="cal-grid-nav">
+            <button class="btn btn-outline btn-sm" id="cal-prev-month">← Prev</button>
+            <div class="cal-grid-month" id="cal-grid-month-label"></div>
+            <button class="btn btn-outline btn-sm" id="cal-next-month">Next →</button>
+            <button class="btn btn-outline btn-sm" id="cal-today-btn">Today</button>
+          </div>
+          <div class="cal-grid-weekdays">
+            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+
+        <div id="cal-list-panel" style="display:none;">
+          <div class="card" style="padding:0;">
+            <div class="table-wrap">
+              <table class="plan-table">
+                <thead><tr><th>Post</th><th>Date</th><th>Day</th><th>Format</th><th>Headline</th><th>Persona</th><th>Priority</th><th>Agent</th><th></th></tr></thead>
+                <tbody id="cal-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="previews" data-page="previews">
+        <div class="section-head">
+          <h2>Post previews</h2>
+          <p class="sub">Mockups follow Buranchi's scrapbook design system — matted photo, textured base, editorial headline.</p>
+        </div>
+        <div class="analytics-toolbar" style="margin-bottom:16px;">
+          <div class="analytics-filters">
+            <div class="field" style="max-width:220px; margin-bottom:0;">
+              <label class="f-label">Agent</label>
+              <select id="prev-agent-filter">
+                <option value="all">All agents</option>
+                <option value="gemini">Gemini</option>
+                <option value="gemini-chat">Gemini Chat</option>
+                <option value="intelligence">Gemini Creative</option>
+                <option value="claude">Claude</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:260px; margin-bottom:0;">
+              <label class="f-label">Generated on</label>
+              <select id="prev-date-filter"><option value="all">All dates</option></select>
+            </div>
+          </div>
+        </div>
+        <div class="post-cards" id="cards"></div>
+        <div class="empty" id="empty-state">
+          <div class="big">No posts yet</div>
+          <div>Add one above, or paste a plan from a Wonderland chat session.</div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="history" data-page="history">
+        <div class="section-head">
+          <h2>Usage history</h2>
+          <p class="sub">Every plan request across all 3 tabs — what was asked, which agent handled it, how many posts came out, and how many tokens it cost.</p>
+        </div>
+        <div class="kpi-grid" id="history-summary"></div>
+        <div class="card" style="padding:0;">
+          <div class="table-wrap">
+            <table class="plan-table">
+              <thead><tr><th>When</th><th>Agent</th><th>Request</th><th>Posts</th><th>Tokens</th></tr></thead>
+              <tbody id="history-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="empty" id="history-empty" style="display:none;">
+          <div class="big">No requests logged yet</div>
+          <div>Generate a plan from any of the 3 tabs and it'll show up here.</div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="agentbehavior" data-page="agentbehavior">
+        <div class="section-head">
+          <h2>Agent Behavior &amp; Guardrails</h2>
+          <p class="sub">Guardrails di bawah berlaku ke semua percakapan Creative Chat. Kondisi per-agent di bawahnya cuma berlaku pas full-analysis (Market → Brand → Judge). Masing-masing bagian punya list dan tombol simpan sendiri.</p>
+        </div>
+
+        <div class="card agent-behavior-card" style="margin-bottom:18px;">
+          <div class="agent-behavior-head">
+            <span class="agent-badge agent-manual">Guardrails</span>
+            <span class="sub-inline">Batasan global — berlaku di semua mode Creative Chat</span>
+          </div>
+          <div class="field" style="max-width:220px;">
+            <label class="f-label">Max posts per proposal / generate</label>
+            <input type="number" id="gr-max-posts" min="1" max="50" value="10">
+          </div>
+          <div class="agent-cond-block">
+            <div class="agent-cond-label">Aturan tambahan yang berlaku sekarang <span class="lock-note">(bisa diedit)</span></div>
+            <div id="gr-rules-list" class="gr-rules-list"></div>
+            <button class="btn btn-outline btn-sm" id="btn-add-rule" type="button" style="margin-top:6px;">+ Add rule</button>
+          </div>
+          <button class="btn btn-accent btn-sm" id="btn-save-guardrails">Save guardrails</button>
+          <span id="guardrails-status" class="rescrape-status" style="margin-left:10px;"></span>
+        </div>
+
+        <div class="agent-behavior-grid">
+          <div class="card agent-behavior-card">
+            <div class="agent-behavior-head">
+              <span class="agent-badge agent-gemini">Market &amp; Visual</span>
+              <span class="sub-inline">Baca kompetitor + histori, cari opportunity/gap</span>
+            </div>
+            <div class="agent-cond-block">
+              <div class="agent-cond-label">Default conditions <span class="lock-note">(read-only, dari kode)</span></div>
+              <ul class="agent-cond-list" id="ab-default-market"></ul>
+            </div>
+            <div class="agent-cond-block">
+              <div class="agent-cond-label">Additional conditions <span class="lock-note">(bisa diedit)</span></div>
+              <div id="ab-extra-market" class="gr-rules-list"></div>
+              <button class="btn btn-outline btn-sm" data-add-agent="market" type="button" style="margin-top:6px;">+ Add condition</button>
+            </div>
+          </div>
+
+          <div class="card agent-behavior-card">
+            <div class="agent-behavior-head">
+              <span class="agent-badge agent-gemini-chat">Brand &amp; Strategy</span>
+              <span class="sub-inline">Baca brand rules, ngereaksi ke proposal market</span>
+            </div>
+            <div class="agent-cond-block">
+              <div class="agent-cond-label">Default conditions <span class="lock-note">(read-only, dari kode)</span></div>
+              <ul class="agent-cond-list" id="ab-default-brand"></ul>
+            </div>
+            <div class="agent-cond-block">
+              <div class="agent-cond-label">Additional conditions <span class="lock-note">(bisa diedit)</span></div>
+              <div id="ab-extra-brand" class="gr-rules-list"></div>
+              <button class="btn btn-outline btn-sm" data-add-agent="brand" type="button" style="margin-top:6px;">+ Add condition</button>
+            </div>
+          </div>
+
+          <div class="card agent-behavior-card">
+            <div class="agent-behavior-head">
+              <span class="agent-badge agent-intelligence">Creative Judge</span>
+              <span class="sub-inline">Nyintesis Market + Brand jadi 1 plan final</span>
+            </div>
+            <div class="agent-cond-block">
+              <div class="agent-cond-label">Default conditions <span class="lock-note">(read-only, dari kode)</span></div>
+              <ul class="agent-cond-list" id="ab-default-judge"></ul>
+            </div>
+            <div class="agent-cond-block">
+              <div class="agent-cond-label">Additional conditions <span class="lock-note">(bisa diedit)</span></div>
+              <div id="ab-extra-judge" class="gr-rules-list"></div>
+              <button class="btn btn-outline btn-sm" data-add-agent="judge" type="button" style="margin-top:6px;">+ Add condition</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:18px; display:flex; align-items:center; gap:12px;">
+          <button class="btn btn-accent btn-sm" id="btn-save-agent-behavior">Save all conditions</button>
+          <span id="agent-behavior-status" class="rescrape-status"></span>
+        </div>
+      </section>
+
+      <section class="section page-view" id="creativechat" data-page="creativechat">
+        <div class="section-head">
+          <h2>Creative Chat</h2>
+          <p class="sub">Ngobrol biasa, atau minta rencana konten baru — Gemini sendiri yang mutusin kapan perlu jalanin analisa penuh Market → Brand → Judge, dan kapan cukup dijawab langsung. Semua di 1 percakapan, jadi bisa lo dalemin lagi ("kenapa lo pilih itu?") tanpa generate ulang.</p>
+        </div>
+
+        <div class="card chat-shell">
+          <div class="chat-convo-list">
+            <button class="btn btn-accent btn-sm" id="btn-cc-new" style="width:100%; margin-bottom:10px;">+ New conversation</button>
+            <div id="cc-convo-items"></div>
+          </div>
+          <div class="chat-main">
+            <div class="chat-toolbar">
+              <span id="cc-session-tokens" class="rescrape-status"></span>
+              <span id="cc-status" class="rescrape-status"></span>
+            </div>
+            <div class="chat-log" id="cc-log">
+              <div class="chat-empty" id="cc-empty">Ketik apa yang mau direncanakan atau ditanyakan — misal "buatkan rencana konten untuk minggu ini" atau (setelah ada hasil) "kenapa lo pilih itu?".</div>
+            </div>
+            <div class="chat-input-row">
+              <textarea id="cc-input" placeholder="Ketik pesan…" rows="2"></textarea>
+              <button class="btn btn-accent" id="btn-cc-send">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="directorya" data-page="directorya">
+        <div class="section-head">
+          <h2>Directory A</h2>
+          <p class="sub">Each client's Google Drive creative archive, read-only — Creative Chat uses it to know what visual assets and past campaigns already exist.</p>
+        </div>
+
+        <div id="dira-list-view">
+          <div class="analytics-toolbar" style="margin-bottom:16px;">
+            <span></span>
+            <button class="btn btn-accent btn-sm" id="btn-dira-add-client">+ Add new client</button>
+          </div>
+          <div id="dira-add-client-form" class="card" style="display:none; margin-bottom:16px; max-width:420px;">
+            <div class="field">
+              <label class="f-label">Client name</label>
+              <input type="text" id="dira-new-client-name" placeholder="e.g. Toko Hijau">
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-accent btn-sm" id="btn-dira-create-client">Create client</button>
+              <button class="btn btn-outline btn-sm" id="btn-dira-cancel-create">Cancel</button>
+            </div>
+            <span id="dira-create-status" class="rescrape-status" style="display:block; margin-top:8px;"></span>
+          </div>
+          <div id="dira-client-list"></div>
+        </div>
+
+        <div id="dira-detail-view" style="display:none;">
+          <div class="analytics-toolbar" style="margin-bottom:16px;">
+            <button class="btn btn-outline btn-sm" id="btn-dira-back">← Back to clients</button>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span id="dira-status" class="rescrape-status"></span>
+              <button class="btn btn-accent btn-sm" id="btn-dira-sync">Sync from Drive</button>
+            </div>
+          </div>
+          <div id="dira-not-configured" class="card" style="display:none; max-width:480px;">
+            <div class="field">
+              <label class="f-label">Google Drive folder link</label>
+              <input type="text" id="dira-link-input" placeholder="https://drive.google.com/drive/folders/...">
+              <div style="font-size:11px; color:var(--fg-muted); margin-top:4px;" id="dira-link-help"></div>
+            </div>
+            <button class="btn btn-accent btn-sm" id="btn-dira-link">Link folder</button>
+            <span id="dira-link-status" class="rescrape-status" style="margin-left:8px;"></span>
+          </div>
+          <div id="dira-groups"></div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="competitors" data-page="competitors">
+        <div class="section-head">
+          <h2>Competitors</h2>
+          <p class="sub">Each client's tracked competitors — this list is what drives scraping direction on the Competitor Dashboard, nothing is discovered automatically.</p>
+        </div>
+
+        <div id="comp-list-view">
+          <div id="comp-client-list"></div>
+        </div>
+
+        <div id="comp-detail-view" style="display:none;">
+          <div class="analytics-toolbar" style="margin-bottom:16px;">
+            <button class="btn btn-outline btn-sm" id="btn-comp-back">← Back to clients</button>
+            <span id="comp-detail-title" style="font-family:'Fraunces', serif; font-size:15px; font-weight:600;"></span>
+          </div>
+
+          <div class="card" style="max-width:520px; margin-bottom:16px;">
+            <div class="field">
+              <label class="f-label">Competitor name</label>
+              <input type="text" id="comp-new-name" placeholder="e.g. Kurasu Indonesia">
+            </div>
+            <div class="field">
+              <label class="f-label">Instagram link or handle</label>
+              <input type="text" id="comp-new-ig" placeholder="https://instagram.com/kurasuid or @kurasuid">
+            </div>
+            <button class="btn btn-accent btn-sm" id="btn-comp-add">+ Add competitor</button>
+            <span id="comp-add-status" class="rescrape-status" style="margin-left:8px;"></span>
+          </div>
+
+          <div id="comp-rows"></div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="masterconfig" data-page="masterconfig">
+        <div class="section-head">
+          <h2>Master Config</h2>
+          <p class="sub">Pick a file on the left. These are the same files Claude reads when it drafts a content plan in chat — edit one here and the next plan Claude generates will follow the update, no separate sync needed.</p>
+        </div>
+        <div class="card">
+          <h3 id="config-editor-title" style="margin:0 0 10px; font-size:15px;">Select a file from the sidebar</h3>
+          <div id="config-explainer" class="config-explainer"></div>
+          <textarea id="config-editor" class="config-textarea" placeholder="Pick a file under &quot;Master Config&quot; in the sidebar to load it here."></textarea>
+          <div style="display:flex; align-items:center; gap:12px; margin-top:10px;">
+            <button class="btn btn-accent" id="config-save">Save changes</button>
+            <span id="config-save-status" style="font-size:12px; color:var(--fg-muted);"></span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- Post detail modal -->
+<div class="overlay" id="detail-overlay"></div>
+<div class="modal" id="detail-modal">
+  <div class="modal-inner">
+    <button class="icon-btn modal-close" id="detail-close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+    </button>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+<!-- Full-size comparison lightbox — stays inside the app shell, no new tab, session stays intact -->
+<div class="overlay" id="lightbox-overlay"></div>
+<div class="lightbox" id="lightbox-modal">
+  <button class="icon-btn modal-close" id="lightbox-close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+  </button>
+  <div id="lightbox-body"></div>
+</div>
+
+<!-- Client picker — shown right after login (no client picked yet) or via the sidebar switch -->
+<div class="overlay" id="clientpicker-overlay"></div>
+<div class="modal" id="clientpicker-modal">
+  <div class="modal-inner">
+    <button class="icon-btn modal-close" id="clientpicker-close" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+    </button>
+    <div class="section-head" style="margin-bottom:14px;">
+      <h2>Pick a client</h2>
+      <p class="sub">Which workspace do you want to work in?</p>
+    </div>
+    <div id="clientpicker-list"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
