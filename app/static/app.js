@@ -192,6 +192,9 @@ const CONTENT_PLAN_PAGES = ['generate', 'calendar', 'previews'];
 const PAGE_SUBTITLES = {
   analytics: "Competitor Instagram data — scrape, filter, and see what's working for them.",
   generate: 'Build a plan, check it against brand standing rules, and export it in Buranchi\'s house style.',
+  moodboard: 'Visual direction and reference boards.',
+  campaignbrief: 'Structured briefs for a full campaign.',
+  ideation: 'Brainstorm raw content ideas before planning them out.',
   calendar: "Every post in this plan, in the order they were added.",
   previews: "Mockups follow Buranchi's scrapbook design system.",
   history: 'Every plan request across all 3 tabs, with token cost and post count.',
