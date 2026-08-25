@@ -3,6 +3,7 @@ app/node_modules/
 
 # Secrets & credentials — never commit these
 app/deploy-keys/compass_deploy
+.github-keys/github_wonderland
 app/service-accounts/
 app/data/orgs.json
 app/data/internal-users.json
