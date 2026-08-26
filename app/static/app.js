@@ -137,6 +137,25 @@ async function init(){
   $('lightbox-close').addEventListener('click', closeLightbox);
   $('lightbox-overlay').addEventListener('click', closeLightbox);
 
+  ['cal-agent-filter','cal-date-filter','prev-agent-filter','prev-date-filter'].forEach(id => {
+    $(id).addEventListener('change', renderCalendarAndPreviews);
+  });
+  $('cal-view-grid').addEventListener('click', () => setCalView('grid'));
+  $('cal-view-list').addEventListener('click', () => setCalView('list'));
+  $('cal-prev-month').addEventListener('click', () => {
+    calGridMonth = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth() - 1, 1);
+    renderCalendarAndPreviews();
+  });
+  $('cal-next-month').addEventListener('click', () => {
+    calGridMonth = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth() + 1, 1);
+    renderCalendarAndPreviews();
+  });
+  $('cal-today-btn').addEventListener('click', () => {
+    calGridMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    renderCalendarAndPreviews();
+  });
+  setCalView(calViewMode);
+
   // Mobile: hamburger toggles the sidebar as an off-canvas drawer. Desktop keeps the sidebar always visible.
   $('btn-hamburger').addEventListener('click', () => {
     $('sidebar').classList.add('mobile-open');
@@ -170,6 +189,7 @@ async function init(){
       if(a.dataset.page === 'dashboard') loadDashboard();
       if(a.dataset.page === 'directorya') loadDirectoryA();
       if(a.dataset.page === 'canva') loadCanvaPage();
+      if(a.dataset.page === 'calendar' || a.dataset.page === 'previews') renderCalendarAndPreviews();
     });
   });
 
@@ -210,13 +230,15 @@ function closeClientPicker(){
 // Each sidebar destination is its own page — only one is visible at a time, no more
 // scroll-through-everything. The plan KPI strip + Clear/Export/Re-match actions only make
 // sense for the content-plan pages, so they hide on Analytics and Master Config.
-const CONTENT_PLAN_PAGES = ['generate'];
+const CONTENT_PLAN_PAGES = ['generate', 'calendar', 'previews'];
 const PAGE_SUBTITLES = {
   analytics: "Competitor Instagram data — scrape, filter, and see what's working for them.",
   generate: 'Build a plan, check it against brand standing rules, and export it in Buranchi\'s house style.',
   moodboard: 'Visual direction and reference boards.',
   campaignbrief: 'Same sections as the real brief doc, plus AI rephrasing and a visual reference picker.',
   ideation: 'Brainstorm raw content ideas before planning them out.',
+  calendar: "Every post in this plan, in the order they were added.",
+  previews: "Mockups follow Buranchi's scrapbook design system.",
   history: 'Every plan request across all 3 tabs, with token cost and post count.',
   agentbehavior: 'Guardrails global plus kondisi default per agent, dengan kondisi tambahan yang bisa lo edit sendiri.',
   creativechat: 'Ngobrol atau minta rencana konten — pilih sendiri modelnya, dalam 1 percakapan.',
@@ -2215,10 +2237,381 @@ async function saveAgentBehavior(){
   if(res && res.ok) AGENT_KEYS.forEach(key => renderRulesList(res[key] || [], 'ab-extra-' + key));
 }
 
+/* ---------- calendar & post previews ---------- */
+function agentBadge(p){
+  const by = p.generatedBy || 'claude'; // plans pasted before this field existed were all Claude-chat-generated
+  const m = AGENT_BADGE_MAP[by] || AGENT_BADGE_MAP.claude;
+  return `<span class="agent-badge ${m.cls}">${m.label}</span>`;
+}
+
+function genDateOf(p){ return p.createdAt ? p.createdAt.slice(0,10) : null; }
+
+function populateGenDateFilters(){
+  const dates = [...new Set(posts.map(genDateOf).filter(Boolean))].sort().reverse();
+  ['cal-date-filter','prev-date-filter'].forEach(id => {
+    const sel = $(id);
+    if(!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="all">All dates</option>' + dates.map(d =>
+      `<option value="${d}">${fmtDate(d)}</option>`
+    ).join('');
+    if(dates.includes(current)) sel.value = current;
+  });
+}
+
+function applyPlanFilters(agentFilterId, dateFilterId){
+  const agent = $(agentFilterId).value;
+  const date = $(dateFilterId).value;
+  return posts.filter(p => {
+    if(agent !== 'all' && (p.generatedBy || 'claude') !== agent) return false;
+    if(date !== 'all' && genDateOf(p) !== date) return false;
+    return true;
+  });
+}
+
+// The scheduled date on a post is a loose string ("Aug 8" or an ISO "2026-08-20"),
+// never guaranteed to carry a year, so the grid has to reconstruct a real Date from it —
+// falling back to the generation year (createdAt) when the string itself has none.
+function parsePostDate(p){
+  if(!p.date) return null;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.date.trim());
+  if(iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const year = p.createdAt ? new Date(p.createdAt).getFullYear() : new Date().getFullYear();
+  const guess = new Date(`${p.date} ${year}`);
+  return isNaN(guess.getTime()) ? null : guess;
+}
+
+function calDateKey(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+let calGridMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let calViewMode = localStorage.getItem('compass-cal-view') || 'grid';
+
+function renderCalendarGrid(calPosts){
+  const byDate = {};
+  calPosts.forEach(p => {
+    const d = parsePostDate(p);
+    if(!d) return;
+    const key = calDateKey(d);
+    (byDate[key] = byDate[key] || []).push(p);
+  });
+
+  const monthStart = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth(), 1);
+  $('cal-grid-month-label').textContent = monthStart.toLocaleDateString('en-US', { month:'long', year:'numeric' });
+
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(gridStart.getDate() - gridStart.getDay());
+
+  const todayKey = calDateKey(new Date());
+  let html = '';
+  for(let i = 0; i < 42; i++){
+    const cellDate = new Date(gridStart);
+    cellDate.setDate(gridStart.getDate() + i);
+    const key = calDateKey(cellDate);
+    const inMonth = cellDate.getMonth() === monthStart.getMonth();
+    const isToday = key === todayKey;
+    const dayPosts = byDate[key] || [];
+    const shown = dayPosts.slice(0, 3);
+    const extra = dayPosts.length - shown.length;
+    html += `<div class="cal-cell ${inMonth ? '' : 'cal-cell-out'} ${isToday ? 'cal-cell-today' : ''}">
+      <div class="cal-cell-date">${cellDate.getDate()}${isToday ? '<span class="cal-today-dot"></span>' : ''}</div>
+      <div class="cal-cell-posts">
+        ${shown.map(p => `<div class="cal-chip ${(AGENT_BADGE_MAP[p.generatedBy||'claude']||AGENT_BADGE_MAP.claude).cls}" title="${esc(p.headline||'')}" onclick="openDetail('${p.id}')" style="cursor:pointer;">${esc(p.headline || '(untitled)')}</div>`).join('')}
+        ${extra > 0 ? `<div class="cal-chip-more">+${extra} more</div>` : ''}
+      </div>
+    </div>`;
+  }
+  $('cal-grid').innerHTML = html;
+
+  const todayPosts = byDate[todayKey] || [];
+  const banner = $('cal-today-banner');
+  if(todayPosts.length){
+    banner.style.display = 'flex';
+    banner.innerHTML = `<span class="cal-banner-icon">🔔</span><span>${todayPosts.length} post${todayPosts.length > 1 ? 's' : ''} due today — ${todayPosts.map(p => esc(p.headline || '(untitled)')).join(', ')}</span>`;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function setCalView(mode){
+  calViewMode = mode;
+  localStorage.setItem('compass-cal-view', mode);
+  $('cal-view-grid').classList.toggle('active', mode === 'grid');
+  $('cal-view-list').classList.toggle('active', mode === 'list');
+  $('cal-grid-panel').style.display = mode === 'grid' ? 'block' : 'none';
+  $('cal-list-panel').style.display = mode === 'list' ? 'block' : 'none';
+}
+
+function mockupCard(p){
+  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
+  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
+  const headlinePos = p.headlinePos || 'bottom';
+  // In the compact thumbnail, force the badge to the corner opposite the headline so long headlines never collide with it.
+  // The stored badgePos is still honored as-is in the full detail view / export.
+  const thumbBadgePos = p.badge ? (headlinePos === 'top' ? 'bottom' : 'top') : '';
+  const badgeHtml = p.badge ? `<div class="badge ${thumbBadgePos}">${esc(p.badge)}</div>` : '';
+  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
+  const photoInner = p.frame === 'yellow-frame'
+    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
+    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
+  return `
+  <div class="post-card" onclick="openDetail('${p.id}')">
+    <div class="mockup ${p.base} ${ratio}">
+      <div class="${frameClass}">${photoInner}</div>
+      ${badgeHtml}
+      <div class="headline-block pos-${headlinePos}">
+        <div class="${hClass}">${esc(p.headline)}</div>
+        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
+      </div>
+    </div>
+    <div class="meta">
+      <div class="kicker">${esc(p.date)} · ${p.format}</div>
+      <div class="cap">${esc(p.caption||'').slice(0,120)}</div>
+      <div class="row-actions">
+        <button onclick="event.stopPropagation(); openDetail('${p.id}')">View detail</button>
+        <button onclick="event.stopPropagation(); removePost('${p.id}')">Remove</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function removePost(id){
+  await api('/api/posts/' + id, { method:'DELETE' });
+  posts = posts.filter(p => p.id !== id);
+  renderCalendarAndPreviews();
+}
+
+// Replaces the calendar/preview slice of the old monolithic render() — the KPI strip it used to
+// also refresh is gone (Content Plan's overhauled AI-generate form doesn't have one), so this
+// only touches what Calendar/Post Previews actually need.
+function renderCalendarAndPreviews(){
+  $('empty-state').style.display = posts.length ? 'none' : 'block';
+
+  populateGenDateFilters();
+
+  const calPosts = applyPlanFilters('cal-agent-filter', 'cal-date-filter');
+  $('cal-body').innerHTML = calPosts.map((p,i) => `
+    <tr onclick="openDetail('${p.id}')" style="cursor:pointer;">
+      <td>#${String(i+1).padStart(2,'0')}</td>
+      <td>${esc(p.date)}</td>
+      <td>${esc(p.day)}</td>
+      <td><span class="fmt-pill ${p.format}">${p.format}</span>${p.event ? '<span class="event-flag">event</span>' : ''}</td>
+      <td>${esc(p.headline)}</td>
+      <td>${esc(p.persona||'')}</td>
+      <td>${esc(p.priority||'')}</td>
+      <td>${agentBadge(p)}</td>
+      <td class="row-actions"><button onclick="event.stopPropagation(); removePost('${p.id}')">Remove</button></td>
+    </tr>`).join('');
+  renderCalendarGrid(calPosts);
+
+  const prevPosts = applyPlanFilters('prev-agent-filter', 'prev-date-filter');
+  $('cards').innerHTML = prevPosts.map(p => mockupCard(p)).join('');
+}
+
 /* ---------- post detail modal ---------- */
+async function openDetail(id){
+  let p = posts.find(x => x.id === id);
+  if(!p) return;
+
+  // Every post should show a benchmark — auto-pick and save one the first time this post is opened,
+  // instead of making the user hunt for a match themselves.
+  if(!p.referencePost || !p.directoryARef){
+    const guess = p.referencePost ? null : autoResolveReferenceForPost(p, usedReferenceUrls());
+    const dirGuess = p.directoryARef ? null : autoResolveDirectoryAReference(p, usedDirectoryARefIds());
+    if(guess || dirGuess){
+      const body = {};
+      if(guess) body.referencePost = guess;
+      if(dirGuess) body.directoryARef = dirGuess;
+      const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify(body) });
+      if(updated){
+        const idx = posts.findIndex(x => x.id === id);
+        if(idx > -1) posts[idx] = updated;
+        p = updated;
+      }
+    }
+  }
+
+  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
+  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
+  const detailHeadlinePos = p.headlinePos || 'bottom';
+  // Same collision-avoidance as the thumbnail cards: force the badge to the corner opposite
+  // the headline so long copy never overlaps it, regardless of the stored badgePos.
+  const detailBadgePos = p.badge ? (detailHeadlinePos === 'top' ? 'bottom' : 'top') : '';
+  const badgeHtml = p.badge ? `<div class="badge ${detailBadgePos}">${esc(p.badge)}</div>` : '';
+  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
+  const photoInner = p.frame === 'yellow-frame'
+    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
+    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
+  const briefHtml = (p.brief && p.brief.length) ? `<ul class="detail-list">${p.brief.map(b=>`<li>${esc(b)}</li>`).join('')}</ul>` : `<div class="detail-empty">No design brief bullets on this post.</div>`;
+
+  const ourMockupHtml = `
+    <div class="mockup ${p.base} ${ratio}" style="width:100%; max-width:320px;">
+      <div class="${frameClass}">${photoInner}</div>
+      ${badgeHtml}
+      <div class="headline-block pos-${detailHeadlinePos}">
+        <div class="${hClass}">${esc(p.headline)}</div>
+        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
+      </div>
+    </div>`;
+
+  // The attached reference is a frozen snapshot (so caption/category/stats stay stable), but
+  // Instagram's image URLs expire within hours — always try the freshest URL for the same post
+  // from whatever's currently loaded, and only fall back to the frozen one if it's gone from the data.
+  const rawRef = p.referencePost;
+  const fresh = rawRef && COMPETITOR_POSTS.find(x => x.url === rawRef.url);
+  const ref = rawRef ? Object.assign({}, rawRef, fresh ? { display_url: fresh.display_url } : {}) : null;
+  const withPhoto = [...COMPETITOR_POSTS].filter(x => x.display_url).sort((a,b) => (b.engagement_rate_pct||0) - (a.engagement_rate_pct||0));
+  const pickerOptions = '<option value="">Choose a competitor post…</option>' + withPhoto.map(x =>
+    `<option value="${esc(x.url)}">${esc(x.brand_name)} — ${esc(x.category)} — ${fmtPct(x.engagement_rate_pct||0)}</option>`
+  ).join('');
+
+  const compareHtml = `
+    ${ref ? `<div style="text-align:right; margin-bottom:10px;"><button class="btn btn-outline btn-sm" onclick="openLightbox('${p.id}')">⤢ View full size, side by side</button></div>` : ''}
+    <div class="compare-grid">
+      <div class="compare-col">
+        <div class="compare-label ours">Our Recommendation</div>
+        <div class="detail-mockup-wrap">${ourMockupHtml}</div>
+      </div>
+      <div class="compare-col">
+        <div class="compare-label theirs">Competitor Reference</div>
+        ${ref ? `
+        <div class="compare-ref-photo">
+          ${ref.display_url
+            ? `<img src="${mediaUrl(ref.display_url)}" alt="${esc(ref.brand_name)} reference post" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'compare-ref-noimg',textContent:'Image expired — Instagram links go stale after a few hours. Rescrape to refresh, or open the original post below.'}))">`
+            : `<div class="compare-ref-noimg">No image captured</div>`}
+        </div>
+        <div class="compare-ref-meta">
+          <span class="competitor-badge" style="background:${(ACCOUNT_COLORS[ref.account]||'#726654')}22;color:${ACCOUNT_COLORS[ref.account]||'#726654'}">${esc(ref.brand_name)}</span>
+          <span class="chip" style="cursor:default;">${esc(ref.category)}</span>
+          <span class="chip" style="cursor:default;">${fmtPct(ref.engagement_rate_pct||0)} eng.</span>
+        </div>
+        <p class="compare-ref-caption">${esc(ref.caption_preview)}</p>
+        <a class="post-link" href="${ref.url}" target="_blank" rel="noopener">Open original post →</a>
+        <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="changeDetailReference('${p.id}')">Change reference</button>
+        ` : `
+        <div class="compare-ref-empty">
+          <p>No competitor benchmark attached to this post yet.</p>
+          <select id="detail-ref-picker">${pickerOptions}</select>
+          <button class="btn btn-accent btn-sm" style="margin-top:8px;" onclick="attachDetailReference('${p.id}')">Attach reference</button>
+        </div>`}
+      </div>
+    </div>`;
+
+  const directoryARefHtml = p.directoryARef ? `
+    <div class="dira-ref-block">
+      <div class="dira-ref-label">From your own archive (Directory A)</div>
+      <a class="dira-ref-photo" href="${esc(p.directoryARef.webViewLink)}" target="_blank" title="${esc(p.directoryARef.name)}">
+        <img src="${esc(p.directoryARef.thumbnailUrl)}" loading="lazy">
+      </a>
+      <div class="dira-ref-name">${esc(p.directoryARef.name)}</div>
+      <div class="dira-ref-path">${esc(p.directoryARef.path)}</div>
+    </div>` : '';
+
+  const specHtml = `
+    <div class="detail-spec">
+      <div class="detail-tags">
+        <span class="fmt-pill ${p.format}">${p.format === 'feed' ? 'Feed · 4:5' : 'Story · 9:16'}</span>
+        ${p.event ? '<span class="event-flag">event-arm</span>' : ''}
+        <span class="chip" style="cursor:default;">${esc(p.date)} · ${esc(p.day||'')}</span>
+      </div>
+      <div class="detail-row"><div class="detail-lab">Headline</div><div class="detail-val serif-val">${esc(p.headline)}</div></div>
+      ${p.sub ? `<div class="detail-row"><div class="detail-lab">Sub-headline</div><div class="detail-val">${esc(p.sub)}</div></div>` : ''}
+      <div class="detail-row"><div class="detail-lab">Persona</div><div class="detail-val">${esc(p.persona||'—')}</div></div>
+      <div class="detail-row"><div class="detail-lab">Business priority</div><div class="detail-val">${esc(p.priority||'—')}</div></div>
+      <div class="detail-row"><div class="detail-lab">Photo direction</div><div class="detail-val">${esc(p.photo||'—')}</div></div>
+      <div class="detail-row"><div class="detail-lab">Design brief</div>${briefHtml}</div>
+      <div class="detail-row"><div class="detail-lab">Caption</div><div class="detail-val caption-box">${esc(p.caption||'—')}</div></div>
+      <div class="detail-row"><div class="detail-lab">CTA / data capture</div><div class="detail-val cta-box">${esc(p.cta||'—')}</div></div>
+    </div>`;
+
+  $('detail-body').innerHTML = `
+    <div class="detail-grid has-compare">
+      <details class="detail-compare-collapse">
+        <summary>Mockup vs. competitor reference</summary>
+        ${compareHtml}
+      </details>
+      <div class="detail-content-row ${p.directoryARef ? '' : 'no-dira'}">
+        ${specHtml}
+        ${directoryARefHtml}
+      </div>
+    </div>`;
+  $('detail-modal').classList.add('open');
+  $('detail-overlay').classList.add('open');
+}
+
+async function attachDetailReference(id){
+  const picker = $('detail-ref-picker');
+  const url = picker ? picker.value : '';
+  if(!url){ alert('Pick a competitor post first.'); return; }
+  const referencePost = resolveReferencePost(url);
+  const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify({ referencePost }) });
+  if(updated){
+    const idx = posts.findIndex(p => p.id === id);
+    if(idx > -1) posts[idx] = updated;
+    openDetail(id);
+  }
+}
+
+async function changeDetailReference(id){
+  const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify({ referencePost: null }) });
+  if(updated){
+    const idx = posts.findIndex(p => p.id === id);
+    if(idx > -1) posts[idx] = updated;
+    openDetail(id);
+  }
+}
+
 function closeDetail(){
   $('detail-modal').classList.remove('open');
   $('detail-overlay').classList.remove('open');
+}
+
+// Large side-by-side view for handing off to a designer — real Instagram export dimensions on
+// our mockup, native resolution on the competitor photo. Opens as an overlay inside the same
+// page (not a new tab), so the sidebar/topbar and login session stay exactly as they were.
+function openLightbox(id){
+  const p = posts.find(x => x.id === id);
+  if(!p || !p.referencePost) return;
+  const fresh = COMPETITOR_POSTS.find(x => x.url === p.referencePost.url);
+  const ref = Object.assign({}, p.referencePost, fresh ? { display_url: fresh.display_url } : {});
+  const specDims = p.format === 'feed' ? '1080 × 1350px (4:5)' : '1080 × 1920px (9:16)';
+  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
+  const detailHeadlinePos = p.headlinePos || 'bottom';
+  const detailBadgePos = p.badge ? (detailHeadlinePos === 'top' ? 'bottom' : 'top') : '';
+  const badgeHtml = p.badge ? `<div class="badge ${detailBadgePos}">${esc(p.badge)}</div>` : '';
+  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
+  const photoInner = p.frame === 'yellow-frame'
+    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
+    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
+  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
+
+  $('lightbox-body').innerHTML = `
+    <div class="lightbox-grid">
+      <div class="lightbox-col">
+        <div class="compare-label ours">Our Recommendation</div>
+        <div class="lightbox-dims">${specDims} — export size for the designer</div>
+        <div class="mockup ${p.base} ${ratio} lightbox-mockup">
+          <div class="${frameClass}">${photoInner}</div>
+          ${badgeHtml}
+          <div class="headline-block pos-${detailHeadlinePos}">
+            <div class="${hClass}">${esc(p.headline)}</div>
+            ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="lightbox-col">
+        <div class="compare-label theirs">Competitor Reference — ${esc(ref.brand_name)}</div>
+        <div class="lightbox-dims" id="lightbox-ref-dims">Loading dimensions…</div>
+        ${ref.display_url
+          ? `<img class="lightbox-ref-img" src="${mediaUrl(ref.display_url)}" alt="${esc(ref.brand_name)} reference post"
+               onload="document.getElementById('lightbox-ref-dims').textContent = this.naturalWidth + ' × ' + this.naturalHeight + 'px (native)'"
+               onerror="document.getElementById('lightbox-ref-dims').textContent='Image unavailable'; this.replaceWith(Object.assign(document.createElement('div'),{className:'compare-ref-noimg',textContent:'Image expired — rescrape to refresh.'}))">`
+          : `<div class="compare-ref-noimg">No image captured</div>`}
+      </div>
+    </div>`;
+  $('lightbox-modal').classList.add('open');
+  $('lightbox-overlay').classList.add('open');
 }
 
 function closeLightbox(){

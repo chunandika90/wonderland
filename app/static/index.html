@@ -55,6 +55,8 @@
           <a href="#directorya" data-nav="directorya" data-page="directorya">Directory A</a>
           <a href="#canva" data-nav="canva" data-page="canva">Canva</a>
           <a href="#agentbehavior" data-nav="agentbehavior" data-page="agentbehavior">Agent Behavior &amp; Guardrails</a>
+          <a href="#calendar" data-nav="calendar" data-page="calendar">Calendar</a>
+          <a href="#previews" data-nav="previews" data-page="previews">Post previews</a>
           <a href="#history" data-nav="history" data-page="history">Usage history</a>
         </div>
       </div>
@@ -542,6 +544,92 @@
         <div class="empty">
           <div class="big">Coming soon</div>
           <div>Ideation tools aren't built yet — check back soon.</div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="calendar" data-page="calendar">
+        <div class="section-head">
+          <h2>This month's plan</h2>
+          <p class="sub">Grid view by default — switch to list for the full table.</p>
+        </div>
+        <div id="cal-today-banner" class="cal-today-banner" style="display:none;"></div>
+        <div class="analytics-toolbar" style="margin-bottom:16px;">
+          <div class="analytics-filters">
+            <div class="field" style="max-width:220px; margin-bottom:0;">
+              <label class="f-label">Agent</label>
+              <select id="cal-agent-filter">
+                <option value="all">All agents</option>
+                <option value="gemini">Gemini</option>
+                <option value="gemini-chat">Gemini Chat</option>
+                <option value="intelligence">Gemini Creative</option>
+                <option value="claude">Claude</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:260px; margin-bottom:0;">
+              <label class="f-label">Generated on</label>
+              <select id="cal-date-filter"><option value="all">All dates</option></select>
+            </div>
+          </div>
+          <div class="tab-row cal-view-toggle">
+            <button class="tab-btn active" id="cal-view-grid" data-calview="grid">📅 Grid</button>
+            <button class="tab-btn" id="cal-view-list" data-calview="list">☰ List</button>
+          </div>
+        </div>
+
+        <div id="cal-grid-panel">
+          <div class="cal-grid-nav">
+            <button class="btn btn-outline btn-sm" id="cal-prev-month">← Prev</button>
+            <div class="cal-grid-month" id="cal-grid-month-label"></div>
+            <button class="btn btn-outline btn-sm" id="cal-next-month">Next →</button>
+            <button class="btn btn-outline btn-sm" id="cal-today-btn">Today</button>
+          </div>
+          <div class="cal-grid-weekdays">
+            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+
+        <div id="cal-list-panel" style="display:none;">
+          <div class="card" style="padding:0;">
+            <div class="table-wrap">
+              <table class="plan-table">
+                <thead><tr><th>Post</th><th>Date</th><th>Day</th><th>Format</th><th>Headline</th><th>Persona</th><th>Priority</th><th>Agent</th><th></th></tr></thead>
+                <tbody id="cal-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="previews" data-page="previews">
+        <div class="section-head">
+          <h2>Post previews</h2>
+          <p class="sub">Mockups follow Buranchi's scrapbook design system — matted photo, textured base, editorial headline.</p>
+        </div>
+        <div class="analytics-toolbar" style="margin-bottom:16px;">
+          <div class="analytics-filters">
+            <div class="field" style="max-width:220px; margin-bottom:0;">
+              <label class="f-label">Agent</label>
+              <select id="prev-agent-filter">
+                <option value="all">All agents</option>
+                <option value="gemini">Gemini</option>
+                <option value="gemini-chat">Gemini Chat</option>
+                <option value="intelligence">Gemini Creative</option>
+                <option value="claude">Claude</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:260px; margin-bottom:0;">
+              <label class="f-label">Generated on</label>
+              <select id="prev-date-filter"><option value="all">All dates</option></select>
+            </div>
+          </div>
+        </div>
+        <div class="post-cards" id="cards"></div>
+        <div class="empty" id="empty-state">
+          <div class="big">No posts yet</div>
+          <div>Add one above, or paste a plan from a Wonderland chat session.</div>
         </div>
       </section>
 
