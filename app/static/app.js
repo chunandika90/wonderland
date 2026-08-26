@@ -1,6 +1,19 @@
 const $ = id => document.getElementById(id);
 let posts = [];
+let moodboard = [];
 let currentOrgSlug = '';
+
+/* ---------- theme toggle (works pre-login too, so it's wired outside init()) ---------- */
+function applyTheme(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('compass-theme', theme);
+  $('theme-icon-moon').style.display = theme === 'dark' ? 'none' : 'block';
+  $('theme-icon-sun').style.display = theme === 'dark' ? 'block' : 'none';
+}
+applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+$('btn-theme-toggle').addEventListener('click', () => {
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+});
 
 // What each master config file controls, and how it should be written — shown when a file is opened
 // so a new merchant filling in blank templates knows what to put and in what voice.
@@ -34,7 +47,6 @@ function withBase(path){
 function mediaUrl(url){
   return url && url.startsWith('/') ? withBase(url) : url;
 }
-
 async function api(path, opts){
   const res = await fetch(withBase(path), Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
   if(res.status === 401){ window.location.href = withBase('/login.html'); return null; }
@@ -58,16 +70,40 @@ async function init(){
   $('org-name').textContent = me.clientName;
   currentOrgSlug = me.clientSlug;
   $('today-date').textContent = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-  if(me.isAdmin) $('nav-group-agency').style.display = 'block';
 
   posts = await api('/api/posts') || [];
-  render();
+
+  moodboard = await api('/api/moodboard') || [];
+  renderMoodboard();
+
+  savedBriefs = await api('/api/campaign-briefs') || [];
+  renderSavedBriefs();
 
   $('btn-paste').addEventListener('click', loadPastedPlan);
   $('paste-file').addEventListener('change', loadPastedPlanFile);
   $('btn-clear').addEventListener('click', clearAll);
   $('btn-fill-refs').addEventListener('click', fillMissingReferences);
   $('btn-export').addEventListener('click', exportPlan);
+  $('btn-ai-generate').addEventListener('click', generateAiPlan);
+  $('btn-ai-add-all').addEventListener('click', addAiRecommendationsToPlan);
+  $('btn-ai-discard').addEventListener('click', discardAiRecommendations);
+  $('btn-gen-attach').addEventListener('click', () => $('gen-file-input').click());
+  $('gen-file-input').addEventListener('change', addGenAttachments);
+  document.querySelectorAll('#gen-mode-toggle .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => setGenMode(btn.dataset.mode));
+  });
+
+  $('btn-brief-attach-image').addEventListener('click', () => $('brief-image-input').click());
+  $('brief-image-input').addEventListener('change', addBriefRefImages);
+  $('btn-brief-generate').addEventListener('click', generateBriefCopy);
+  $('btn-brief-save').addEventListener('click', saveBrief);
+  document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
+  });
+
+  $('btn-mb-paste').addEventListener('click', loadPastedMoodboard);
+  $('mb-paste-file').addEventListener('change', loadPastedMoodboardFile);
+  $('btn-mb-clear').addEventListener('click', clearMoodboard);
   $('btn-logout').addEventListener('click', async () => { await api('/api/logout', { method:'POST' }); window.location.href = withBase('/login.html'); });
 
   $('config-save').addEventListener('click', saveConfig);
@@ -78,6 +114,11 @@ async function init(){
   $('cc-input').addEventListener('keydown', (e) => {
     if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendCcMessage(); }
   });
+  $('btn-cc-attach').addEventListener('click', () => $('cc-file-input').click());
+  $('cc-file-input').addEventListener('change', addCcAttachments);
+  const savedModel = localStorage.getItem('compass-cc-model');
+  if(savedModel) $('cc-model-select').value = savedModel;
+  $('cc-model-select').addEventListener('change', () => localStorage.setItem('compass-cc-model', $('cc-model-select').value));
   $('btn-save-agent-behavior').addEventListener('click', saveAgentBehavior);
   $('btn-dira-sync').addEventListener('click', syncDirectoryA);
   $('btn-dira-add-client').addEventListener('click', () => { $('dira-add-client-form').style.display = 'block'; });
@@ -85,8 +126,9 @@ async function init(){
   $('btn-dira-create-client').addEventListener('click', createNewClient);
   $('btn-dira-back').addEventListener('click', closeDirectoryADetail);
   $('btn-dira-link').addEventListener('click', linkDriveFolder);
-  $('btn-comp-back').addEventListener('click', closeCompetitorsDetail);
-  $('btn-comp-add').addEventListener('click', addCompetitor);
+  $('btn-canva-connect').addEventListener('click', () => { window.location.href = withBase('/api/canva/connect'); });
+  $('btn-canva-disconnect').addEventListener('click', disconnectCanva);
+  $('btn-canva-save-mapping').addEventListener('click', saveCanvaMapping);
   document.querySelectorAll('[data-add-agent]').forEach(btn => {
     btn.addEventListener('click', () => addRuleRow('', 'ab-extra-' + btn.dataset.addAgent).querySelector('input').focus());
   });
@@ -125,37 +167,17 @@ async function init(){
       if(a.dataset.page === 'history') loadHistory();
       if(a.dataset.page === 'agentbehavior'){ loadGuardrails(); loadAgentBehavior(); }
       if(a.dataset.page === 'creativechat') initCreativeChatPage();
-      if(a.dataset.page === 'agencyoverview') loadAgencyOverview();
       if(a.dataset.page === 'dashboard') loadDashboard();
       if(a.dataset.page === 'directorya') loadDirectoryA();
-      if(a.dataset.page === 'competitors') loadCompetitorsPage();
+      if(a.dataset.page === 'canva') loadCanvaPage();
     });
   });
 
-  ['cal-agent-filter','cal-date-filter','prev-agent-filter','prev-date-filter'].forEach(id => {
-    $(id).addEventListener('change', render);
-  });
+  if(location.hash === '#canva'){ showPage('canva'); loadCanvaPage(); }
+  else showPage('generate');
 
-  $('cal-view-grid').addEventListener('click', () => setCalView('grid'));
-  $('cal-view-list').addEventListener('click', () => setCalView('list'));
-  $('cal-prev-month').addEventListener('click', () => {
-    calGridMonth = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth() - 1, 1);
-    render();
-  });
-  $('cal-next-month').addEventListener('click', () => {
-    calGridMonth = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth() + 1, 1);
-    render();
-  });
-  $('cal-today-btn').addEventListener('click', () => {
-    calGridMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    render();
-  });
-  setCalView(calViewMode);
-
-  showPage('generate');
-
-  initAnalytics();
-  loadDirectoryAManifestCache();
+  initAnalytics().then(renderBriefVizrefGrid);
+  loadDirectoryAManifestCache().then(renderBriefVizrefGrid);
 }
 
 // Clients aren't logins here — any signed-in WCCN staffer can work in any client's workspace.
@@ -188,23 +210,20 @@ function closeClientPicker(){
 // Each sidebar destination is its own page — only one is visible at a time, no more
 // scroll-through-everything. The plan KPI strip + Clear/Export/Re-match actions only make
 // sense for the content-plan pages, so they hide on Analytics and Master Config.
-const CONTENT_PLAN_PAGES = ['generate', 'calendar', 'previews'];
+const CONTENT_PLAN_PAGES = ['generate'];
 const PAGE_SUBTITLES = {
   analytics: "Competitor Instagram data — scrape, filter, and see what's working for them.",
   generate: 'Build a plan, check it against brand standing rules, and export it in Buranchi\'s house style.',
   moodboard: 'Visual direction and reference boards.',
-  campaignbrief: 'Structured briefs for a full campaign.',
+  campaignbrief: 'Same sections as the real brief doc, plus AI rephrasing and a visual reference picker.',
   ideation: 'Brainstorm raw content ideas before planning them out.',
-  calendar: "Every post in this plan, in the order they were added.",
-  previews: "Mockups follow Buranchi's scrapbook design system.",
   history: 'Every plan request across all 3 tabs, with token cost and post count.',
   agentbehavior: 'Guardrails global plus kondisi default per agent, dengan kondisi tambahan yang bisa lo edit sendiri.',
-  creativechat: 'Ngobrol atau minta rencana konten — Gemini yang mutusin, dalam 1 percakapan.',
+  creativechat: 'Ngobrol atau minta rencana konten — pilih sendiri modelnya, dalam 1 percakapan.',
   masterconfig: 'The brand files Claude and Gemini both read when drafting a plan.',
-  agencyoverview: 'Agregat lintas semua klien — post, deadline, dan aktivitas AI.',
   dashboard: 'Ringkasan status konten plan untuk organisasi ini.',
   directorya: "Read-only mirror of the client's Google Drive creative archive.",
-  competitors: 'Kompetitor yang dilacak per klien — ini yang nentuin arah scraping.'
+  canva: 'Wonderland writes the copy; Canva builds the visual via Brand Template autofill.'
 };
 
 function showPage(pageId){
@@ -213,7 +232,6 @@ function showPage(pageId){
   if(target) target.classList.add('active-page');
 
   const showPlanChrome = CONTENT_PLAN_PAGES.includes(pageId);
-  $('content-plan-kpis').style.display = showPlanChrome ? 'grid' : 'none';
   $('content-plan-actions').style.display = showPlanChrome ? 'flex' : 'none';
   $('page-subtitle').textContent = PAGE_SUBTITLES[pageId] || '';
 
@@ -283,10 +301,17 @@ const WEEKDAY_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Satur
 
 async function initAnalytics(){
   await loadAnalyticsData();
+  await loadTrackedCompetitors();
 
   $('acct-filter').addEventListener('change', applyAnalyticsFilter);
   $('snapshot-filter').addEventListener('change', (e) => { allPostsPage = 1; loadAnalyticsData(e.target.value); });
   $('btn-rescrape').addEventListener('click', runRescrape);
+  $('btn-comp-add').addEventListener('click', addCompetitor);
+  $('comp-new-platform').addEventListener('change', () => {
+    const isLinkedin = $('comp-new-platform').value === 'linkedin';
+    $('comp-new-link-label').textContent = isLinkedin ? 'LinkedIn link' : 'Instagram link or handle';
+    $('comp-new-link').placeholder = isLinkedin ? 'https://linkedin.com/company/kurasu-indonesia' : 'https://instagram.com/kurasuid or @kurasuid';
+  });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -690,6 +715,424 @@ function autoResolveDirectoryAReference(post, usedIds){
   };
 }
 
+/* ---------- generate with AI (question box -> recommendations you review before adding) ---------- */
+let aiRecommendations = [];
+let genMode = 'beforeShoot';
+let genAttachments = [];
+
+async function addGenAttachments(){
+  const input = $('gen-file-input');
+  genAttachments.push(...await readAttachmentFiles(Array.from(input.files || [])));
+  input.value = '';
+  renderGenAttachments();
+}
+
+function removeGenAttachment(idx){
+  genAttachments.splice(idx, 1);
+  renderGenAttachments();
+}
+
+function renderGenAttachments(){
+  renderAttachmentChips('gen-attachments', genAttachments, removeGenAttachment);
+}
+
+const GEN_MODE_HINTS = {
+  beforeShoot: "Nothing's been shot yet — each post's photo direction becomes a brief for the photographer/videographer, with references to shoot toward.",
+  existingDatabase: "Grounded in what's already in Directory A (Master Config's Google Drive database) — no new shoot direction, just which existing asset to use."
+};
+
+function setGenMode(mode){
+  genMode = mode;
+  document.querySelectorAll('#gen-mode-toggle .tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+  $('gen-mode-hint').textContent = GEN_MODE_HINTS[mode] || '';
+}
+
+async function generateAiPlan(){
+  const btn = $('btn-ai-generate');
+  const status = $('ai-generate-status');
+  btn.disabled = true;
+  status.textContent = 'Gemini is thinking…';
+
+  const body = {
+    mode: genMode,
+    totalCount: parseInt($('gen-total-count').value, 10) || null,
+    feedCount: parseInt($('gen-feed-count').value, 10) || null,
+    storyCount: parseInt($('gen-story-count').value, 10) || null,
+    goal: $('gen-goal').value.trim(),
+    products: $('gen-products').value.trim(),
+    occasion: $('gen-occasion').value.trim(),
+    specialRequest: $('gen-special-request').value.trim(),
+    attachments: genAttachments
+  };
+
+  try {
+    const res = await api('/api/generate-plan', { method:'POST', body: JSON.stringify(body) });
+    if(res && res.ok){
+      // Same auto-match enrichment the Claude-paste flow gets, so "existing database" mode's
+      // directoryAKeyword actually resolves to a real Directory A file where possible.
+      const used = usedReferenceUrls();
+      const usedDir = usedDirectoryARefIds();
+      res.posts.forEach(item => {
+        if(!item.referencePost) item.referencePost = autoResolveReferenceForPost(item, used);
+        if(item.referencePost) used.add(item.referencePost.url);
+        if(!item.directoryARef) item.directoryARef = autoResolveDirectoryAReference(item, usedDir);
+        if(item.directoryARef) usedDir.add(item.directoryARef.id);
+      });
+      aiRecommendations = res.posts;
+      renderAiRecommendations();
+      status.textContent = `${res.posts.length} recommendation${res.posts.length===1?'':'s'} — ${res.tokenUsage.total.toLocaleString()} tokens · ${res.model}` + (res.note ? ` (${res.note})` : '');
+    } else {
+      status.textContent = (res && res.error) || 'Could not generate a plan.';
+    }
+  } catch(e){
+    status.textContent = 'Request failed — try again.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderAiRecommendations(){
+  const wrap = $('ai-recs-wrap');
+  if(!aiRecommendations.length){
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  $('ai-recs-list').innerHTML = aiRecommendations.map((p, idx) => `
+    <div class="ai-rec-card">
+      <div class="ai-rec-head">
+        <div class="ai-rec-meta"><span class="fmt-pill ${p.format}">${esc(p.format||'')}</span>${esc(p.date||'')}</div>
+        <button class="btn btn-outline btn-sm" data-ai-remove="${idx}">Remove</button>
+      </div>
+      <div class="ai-rec-headline">${esc(p.headline||'(untitled)')}</div>
+      ${p.sub ? `<div class="ai-rec-sub">${esc(p.sub)}</div>` : ''}
+      ${p.photo ? `<p class="ai-rec-caption"><b>Photo direction:</b> ${esc(p.photo)}</p>` : ''}
+      <p class="ai-rec-caption">${esc(p.caption||'')}</p>
+      ${p.directoryARef ? `<div class="ai-rec-meta" style="margin-top:8px;">🗂️ Matched existing file: ${esc(p.directoryARef.name)}</div>` : ''}
+      ${p.referencePost ? `<div class="ai-rec-meta" style="margin-top:4px;">🔗 Reference: ${esc(p.referencePost.brand_name || '')}</div>` : ''}
+    </div>
+  `).join('');
+  $('ai-recs-list').querySelectorAll('[data-ai-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      aiRecommendations.splice(parseInt(btn.dataset.aiRemove, 10), 1);
+      renderAiRecommendations();
+    });
+  });
+}
+
+async function addAiRecommendationsToPlan(){
+  if(!aiRecommendations.length) return;
+  posts = await api('/api/posts/bulk', { method:'POST', body: JSON.stringify(aiRecommendations) }) || posts;
+  aiRecommendations = [];
+  renderAiRecommendations();
+  $('ai-generate-status').textContent = 'Added to plan ✓';
+}
+
+function discardAiRecommendations(){
+  aiRecommendations = [];
+  renderAiRecommendations();
+  $('ai-generate-status').textContent = '';
+}
+
+/* ---------- campaign brief (form -> generated visual copywriting -> save -> export) ---------- */
+let savedBriefs = [];
+let briefRefImages = []; // [{name, mimeType, data}] — data is base64, no data: prefix
+let briefRecOptions = [];
+let briefStrategySummary = '';
+let briefSelectedRec = null;
+
+async function addBriefRefImages(){
+  const input = $('brief-image-input');
+  const files = Array.from(input.files || []);
+  for(const file of files){
+    if(!file.type.startsWith('image/')) continue;
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      briefRefImages.push({ name: file.name, kind: 'upload', mimeType: file.type, data: dataUrl.split(',')[1] });
+    } catch(e){
+      alert(`Could not read "${file.name}".`);
+    }
+  }
+  input.value = '';
+  renderBriefRefImages();
+}
+
+function removeBriefRefImage(idx){
+  briefRefImages.splice(idx, 1);
+  renderBriefRefImages();
+  renderBriefVizrefGrid();
+}
+
+// briefRefImages holds two kinds of entries: uploaded files (kind:'upload', base64 data) and
+// picks from the competitor/internal database pickers below (kind:'competitor'|'internal', a URL
+// on this server instead of base64 — only uploads get sent to Gemini as image context; database
+// picks are for the brief document itself).
+function renderBriefRefImages(){
+  $('brief-ref-images').innerHTML = briefRefImages.map((img, idx) => `
+    <div class="brief-ref-img-card">
+      <img src="${img.kind === 'upload' ? `data:${img.mimeType};base64,${img.data}` : esc(img.url)}" alt="${esc(img.name)}">
+      <button type="button" data-brief-remove-img="${idx}">×</button>
+    </div>
+  `).join('');
+  $('brief-ref-images').querySelectorAll('[data-brief-remove-img]').forEach(btn => {
+    btn.addEventListener('click', () => removeBriefRefImage(parseInt(btn.dataset.briefRemoveImg, 10)));
+  });
+}
+
+let briefVizrefSource = 'competitor';
+
+function setBriefVizrefSource(src){
+  briefVizrefSource = src;
+  document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.src === src));
+  renderBriefVizrefGrid();
+}
+
+function toggleBriefVizref(item){
+  const idx = briefRefImages.findIndex(i => i.refKey === item.refKey);
+  if(idx > -1) briefRefImages.splice(idx, 1);
+  else briefRefImages.push(item);
+  renderBriefRefImages();
+  renderBriefVizrefGrid();
+}
+
+function renderBriefVizrefGrid(){
+  const grid = $('brief-vizref-grid');
+  if(!grid) return;
+  const empty = $('brief-vizref-empty');
+  let items = [];
+  if(briefVizrefSource === 'competitor'){
+    items = COMPETITOR_POSTS.filter(p => p.display_url).slice(0, 40).map(p => ({
+      refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url)
+    }));
+    $('brief-vizref-empty-text').textContent = 'No competitor data scraped yet — visit the Competitor Dashboard.';
+  } else {
+    items = (DIRECTORY_A_MANIFEST || []).filter(f => f.hasThumbnail).slice(0, 40).map(f => ({
+      refKey: 'internal:' + f.id, name: f.name, kind: 'internal', url: withBase('/media/directory-a/' + currentOrgSlug + '/' + f.id + '.jpg')
+    }));
+    $('brief-vizref-empty-text').textContent = 'No internal archive synced yet — link a Google Drive folder in Directory A.';
+  }
+  if(!items.length){
+    grid.innerHTML = '';
+    if(empty) empty.style.display = 'block';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  grid.innerHTML = items.map(item => `
+    <div class="vizref-card ${briefRefImages.some(i => i.refKey === item.refKey) ? 'selected' : ''}" data-vizref-key="${esc(item.refKey)}">
+      <img src="${esc(item.url)}" alt="${esc(item.name)}" loading="lazy">
+      <div class="vizref-label">${esc(item.name)}</div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('[data-vizref-key]').forEach((card, i) => {
+    card.addEventListener('click', () => toggleBriefVizref(items[i]));
+  });
+}
+
+function collectBriefFields(){
+  return {
+    title: $('brief-title').value.trim(),
+    background: $('brief-background').value.trim(),
+    audience: $('brief-audience').value.trim(),
+    objective: $('brief-objective').value.trim(),
+    timeline: $('brief-timeline').value.trim(),
+    channels: $('brief-channels').value.trim(),
+    terms: $('brief-terms').value.trim(),
+    refLinks: $('brief-ref-links').value.trim(),
+    draftHeadline: $('brief-draft-headline').value.trim(),
+    draftSub: $('brief-draft-sub').value.trim(),
+    draftCaption: $('brief-draft-caption').value.trim()
+  };
+}
+
+async function generateBriefCopy(){
+  const btn = $('btn-brief-generate');
+  const status = $('brief-generate-status');
+  const body = collectBriefFields();
+  if(!body.draftHeadline && !body.draftSub && !body.draftCaption){
+    alert('Write a draft headline, sub-headline, or caption first — rephrasing needs something to work from.');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Gemini is thinking…';
+
+  body.referenceImages = briefRefImages.filter(i => i.kind === 'upload').map(i => ({ mimeType: i.mimeType, data: i.data }));
+
+  try {
+    const res = await api('/api/generate-brief', { method:'POST', body: JSON.stringify(body) });
+    if(res && res.ok){
+      briefRecOptions = res.options;
+      briefStrategySummary = res.strategySummary;
+      briefSelectedRec = null;
+      renderBriefRecs();
+      status.textContent = `${res.options.length} option${res.options.length===1?'':'s'} — ${res.tokenUsage.total.toLocaleString()} tokens · ${res.model}`;
+    } else {
+      status.textContent = (res && res.error) || 'Could not rephrase.';
+    }
+  } catch(e){
+    status.textContent = 'Request failed — try again.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderBriefRecs(){
+  const wrap = $('brief-recs-wrap');
+  if(!briefRecOptions.length){
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  $('brief-recs-list').innerHTML = (briefStrategySummary ? `<p class="sub" style="margin:0 0 12px;">${esc(briefStrategySummary)}</p>` : '') +
+    briefRecOptions.map((o, idx) => `
+      <div class="ai-rec-card selectable ${briefSelectedRec === idx ? 'selected' : ''}" data-brief-select-rec="${idx}">
+        <div class="ai-rec-headline">${esc(o.headline||'(untitled)')}</div>
+        ${o.sub ? `<div class="ai-rec-sub">${esc(o.sub)}</div>` : ''}
+        <p class="ai-rec-caption">${esc(o.caption||'')}</p>
+      </div>
+    `).join('');
+  $('brief-recs-list').querySelectorAll('[data-brief-select-rec]').forEach(card => {
+    card.addEventListener('click', () => {
+      briefSelectedRec = parseInt(card.dataset.briefSelectRec, 10);
+      renderBriefRecs();
+    });
+  });
+}
+
+async function saveBrief(){
+  const fields = collectBriefFields();
+  if(!fields.title){ alert('Give this campaign a name first.'); return; }
+  const status = $('brief-generate-status');
+  const brief = Object.assign({}, fields, {
+    referenceImages: briefRefImages,
+    visualCopywriting: briefSelectedRec !== null ? briefRecOptions[briefSelectedRec] : null,
+    strategySummary: briefSelectedRec !== null ? briefStrategySummary : null
+  });
+  const saved = await api('/api/campaign-briefs', { method:'POST', body: JSON.stringify(brief) });
+  if(saved && saved.id){
+    savedBriefs.push(saved);
+    renderSavedBriefs();
+    ['brief-title','brief-background','brief-audience','brief-objective','brief-timeline','brief-channels','brief-terms','brief-ref-links','brief-draft-headline','brief-draft-sub','brief-draft-caption'].forEach(id => $(id).value = '');
+    briefRefImages = []; renderBriefRefImages(); renderBriefVizrefGrid();
+    briefRecOptions = []; briefSelectedRec = null; renderBriefRecs();
+    status.textContent = 'Saved ✓';
+  } else {
+    status.textContent = (saved && saved.error) || 'Could not save.';
+  }
+}
+
+async function deleteBrief(id){
+  if(!confirm('Delete this campaign brief?')) return;
+  await api('/api/campaign-briefs/' + id, { method:'DELETE' });
+  savedBriefs = savedBriefs.filter(b => b.id !== id);
+  renderSavedBriefs();
+}
+
+function renderSavedBriefs(){
+  const empty = $('brief-saved-empty');
+  if(!savedBriefs.length){
+    $('brief-saved-list').innerHTML = '';
+    if(empty) empty.style.display = 'block';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  $('brief-saved-list').innerHTML = savedBriefs.slice().reverse().map(b => `
+    <div class="brief-saved-card">
+      <div class="brief-saved-head">
+        <div>
+          <div class="brief-saved-title">${esc(b.title)}</div>
+          <div class="brief-saved-meta">${fmtDateTime(b.createdAt)}${b.timeline ? ' · ' + esc(b.timeline) : ''}</div>
+        </div>
+        <div class="brief-saved-actions">
+          <button class="btn btn-outline btn-sm" data-brief-canva="${esc(b.id)}">${b.canva ? 'Re-send to Canva' : 'Send to Canva'}</button>
+          <button class="btn btn-outline btn-sm" data-brief-export="${esc(b.id)}">Export</button>
+          <button class="btn btn-outline btn-sm" data-brief-delete="${esc(b.id)}">Delete</button>
+        </div>
+      </div>
+      ${b.objective ? `<p class="ai-rec-caption">${esc(b.objective)}</p>` : ''}
+      <div id="brief-canva-status-${esc(b.id)}" class="rescrape-status" style="margin-top:6px;">
+        ${b.canva && b.canva.editUrl ? `<a href="${esc(b.canva.editUrl)}" target="_blank" rel="noopener">Open in Canva ↗</a>` : ''}
+      </div>
+    </div>
+  `).join('');
+  $('brief-saved-list').querySelectorAll('[data-brief-delete]').forEach(btn => {
+    btn.addEventListener('click', () => deleteBrief(btn.dataset.briefDelete));
+  });
+  $('brief-saved-list').querySelectorAll('[data-brief-export]').forEach(btn => {
+    btn.addEventListener('click', () => exportBrief(btn.dataset.briefExport));
+  });
+  $('brief-saved-list').querySelectorAll('[data-brief-canva]').forEach(btn => {
+    btn.addEventListener('click', () => sendBriefToCanva(btn.dataset.briefCanva));
+  });
+}
+
+async function sendBriefToCanva(id){
+  const statusEl = $('brief-canva-status-' + id);
+  statusEl.textContent = 'Sending to Canva…';
+  const res = await api('/api/canva/autofill/brief/' + id, { method:'POST', body: JSON.stringify({ templateKey: 'briefCover' }) });
+  if(res && res.ok !== false && res.editUrl){
+    const brief = savedBriefs.find(b => b.id === id);
+    if(brief) brief.canva = res;
+    statusEl.innerHTML = `<a href="${esc(res.editUrl)}" target="_blank" rel="noopener">Open in Canva ↗</a>`;
+  } else {
+    statusEl.textContent = (res && res.error) || 'Could not send to Canva.';
+  }
+}
+
+function exportBrief(id){
+  const b = savedBriefs.find(x => x.id === id);
+  if(!b) return;
+  const vc = b.visualCopywriting;
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>${esc(b.title)} — Campaign Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700&family=Inclusive+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Inclusive Sans',sans-serif;background:#EFEAE0;color:#2B221B;padding:0 0 60px;}
+.serif{font-family:'Fraunces',serif;}
+h1{font-family:'Fraunces',serif;padding:32px 40px 0;margin:0;}
+.sub{padding:0 40px;color:#726654;}
+section{padding:18px 40px;}
+h2{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:#726654; margin:0 0 8px;}
+p{margin:0; line-height:1.6; white-space:pre-wrap;}
+.imgs{display:flex; flex-wrap:wrap; gap:14px; margin-top:8px;}
+.imgs img{width:220px; height:220px; object-fit:cover; border-radius:10px; border:1px solid #E5DFD0;}
+.vc-card{background:#FCFBF7; border:1px solid #E5DFD0; border-radius:12px; padding:18px 20px; margin-top:8px;}
+.vc-card .headline{font-family:'Fraunces',serif; font-size:20px; margin-bottom:4px;}
+.vc-card .subhead{font-style:italic; color:#726654; margin-bottom:10px;}
+hr{border:none; border-top:1px solid #E5DFD0; margin:0;}
+</style></head><body>
+<h1>${esc(b.title)}</h1>
+<p class="sub">Campaign brief — exported from Wonderland, ${fmtDateTime(b.createdAt)}</p>
+<hr>
+<section><h2>Campaign Background</h2><p>${esc(b.background||'—')}</p></section>
+<section><h2>Target Audience</h2><p>${esc(b.audience||'—')}</p></section>
+<section><h2>Campaign Objective</h2><p>${esc(b.objective||'—')}</p></section>
+<section><h2>Timeline Campaign</h2><p>${esc(b.timeline||'—')}</p></section>
+<section><h2>Media Channels</h2><p>${esc(b.channels||'—')}</p></section>
+<section><h2>Terms and Condition Campaign</h2><p>${esc(b.terms||'—')}</p></section>
+<section><h2>References Visual</h2><div class="imgs">${(b.referenceImages||[]).map(img => `<img src="${img.kind === 'upload' ? `data:${img.mimeType};base64,${img.data}` : (location.origin + img.url)}" alt="${esc(img.name)}">`).join('') || '<p>—</p>'}</div></section>
+<section><h2>References Content</h2><p>${esc(b.refLinks||'—')}</p></section>
+<section><h2>Visual Copywriting</h2>
+${vc ? `<div class="vc-card">
+  <div class="headline">${esc(vc.headline||'')}</div>
+  ${vc.sub ? `<div class="subhead">${esc(vc.sub)}</div>` : ''}
+  <p>${esc(vc.caption||'')}</p>
+</div>` : '<p>Not generated yet.</p>'}
+</section>
+</body></html>`;
+  const blob = new Blob([html], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${b.title.replace(/[^a-z0-9]+/gi,'-')}-Campaign-Brief.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function loadPastedPlanFromText(raw){
   const cleaned = raw.trim().replace(/^```(js|json)?/i,'').replace(/```$/,'').trim();
   const arr = new Function('return ' + cleaned)();
@@ -704,7 +1147,6 @@ async function loadPastedPlanFromText(raw){
     if(!item.generatedBy) item.generatedBy = 'claude'; // pasted from a Claude chat session
   });
   posts = await api('/api/posts/bulk', { method:'POST', body: JSON.stringify(arr) }) || posts;
-  render();
 }
 
 async function loadPastedPlan(){
@@ -736,7 +1178,79 @@ async function clearAll(){
   if(!confirm('Clear all posts in this plan?')) return;
   await api('/api/posts', { method:'DELETE' });
   posts = [];
-  render();
+}
+
+/* ---------- moodboard (same paste-from-Claude-chat workflow as the content plan) ---------- */
+async function loadPastedMoodboardFromText(raw){
+  const cleaned = raw.trim().replace(/^```(js|json)?/i,'').replace(/```$/,'').trim();
+  const arr = new Function('return ' + cleaned)();
+  if(!Array.isArray(arr)) throw new Error('not an array');
+  arr.forEach(item => { if(!item.generatedBy) item.generatedBy = 'claude'; });
+  moodboard = await api('/api/moodboard/bulk', { method:'POST', body: JSON.stringify(arr) }) || moodboard;
+  renderMoodboard();
+}
+
+async function loadPastedMoodboard(){
+  const raw = $('mb-paste-box').value.trim();
+  if(!raw) return;
+  try {
+    await loadPastedMoodboardFromText(raw);
+    $('mb-paste-box').value = '';
+  } catch(e){
+    alert('Could not parse that moodboard. Make sure it\'s a valid items array. (' + e.message + ')');
+  }
+}
+
+async function loadPastedMoodboardFile(){
+  const input = $('mb-paste-file');
+  const file = input.files && input.files[0];
+  if(!file) return;
+  try {
+    const text = await file.text();
+    await loadPastedMoodboardFromText(text);
+    input.value = '';
+    $('mb-paste-box').value = '';
+  } catch(e){
+    alert('Could not parse that .md file. Make sure it contains a valid items array. (' + e.message + ')');
+  }
+}
+
+async function clearMoodboard(){
+  if(!confirm('Clear the whole moodboard for this client?')) return;
+  await api('/api/moodboard', { method:'DELETE' });
+  moodboard = [];
+  renderMoodboard();
+}
+
+async function deleteMoodboardItem(id){
+  await api('/api/moodboard/' + id, { method:'DELETE' });
+  moodboard = moodboard.filter(m => m.id !== id);
+  renderMoodboard();
+}
+
+function renderMoodboard(){
+  const grid = $('moodboard-grid');
+  if(!grid) return;
+  const empty = $('moodboard-empty');
+  if(!moodboard.length){
+    grid.innerHTML = '';
+    if(empty) empty.style.display = 'block';
+    return;
+  }
+  if(empty) empty.style.display = 'none';
+  grid.innerHTML = moodboard.map(item => `
+    <div class="moodboard-card">
+      ${item.referenceImage ? `<img src="${esc(item.referenceImage)}" alt="${esc(item.title || '')}">` : ''}
+      <h3>${esc(item.title || 'Untitled')}</h3>
+      ${item.description ? `<p>${esc(item.description)}</p>` : ''}
+      ${Array.isArray(item.colorPalette) && item.colorPalette.length ? `<div class="moodboard-swatches">${item.colorPalette.map(c => `<div class="moodboard-swatch" style="background:${esc(c)}" title="${esc(c)}"></div>`).join('')}</div>` : ''}
+      ${Array.isArray(item.tags) && item.tags.length ? `<div class="moodboard-tags">${item.tags.map(t => `<span class="moodboard-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      <div class="moodboard-card-actions"><button class="btn btn-outline btn-sm" data-mb-del="${esc(item.id)}">Remove</button></div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('[data-mb-del]').forEach(btn => {
+    btn.addEventListener('click', () => deleteMoodboardItem(btn.dataset.mbDel));
+  });
 }
 
 
@@ -775,13 +1289,6 @@ async function fillMissingReferences(){
   btn.textContent = originalText;
   btn.disabled = false;
   alert(`Re-matched ${filled} post${filled===1?'':'s'} to a reference (competitor and/or your own archive).`);
-  render();
-}
-
-async function removePost(id){
-  await api('/api/posts/' + id, { method:'DELETE' });
-  posts = posts.filter(p => p.id !== id);
-  render();
 }
 
 function esc(s){ return (s||'').toString().replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -791,14 +1298,11 @@ const AGENT_BADGE_MAP = {
   'gemini-chat': { label: 'Gemini Chat', cls: 'agent-gemini-chat' },
   intelligence: { label: 'Gemini Creative', cls: 'agent-intelligence' },
   claude: { label: 'Claude', cls: 'agent-claude' },
+  'claude-chat': { label: 'Claude Chat', cls: 'agent-claude-chat' },
+  'gpt-chat': { label: 'GPT Chat', cls: 'agent-gpt-chat' },
+  'kimi-chat': { label: 'Kimi Chat', cls: 'agent-kimi-chat' },
   manual: { label: 'Manual', cls: 'agent-manual' }
 };
-
-function agentBadge(p){
-  const by = p.generatedBy || 'claude'; // plans pasted before this field existed were all Claude-chat-generated
-  const m = AGENT_BADGE_MAP[by] || AGENT_BADGE_MAP.claude;
-  return `<span class="agent-badge ${m.cls}">${m.label}</span>`;
-}
 
 function agentBadgeByName(agent){
   const m = AGENT_BADGE_MAP[agent] || AGENT_BADGE_MAP.claude;
@@ -833,38 +1337,6 @@ async function loadDashboard(){
     <div class="rec-item"><div class="rec-icon">✦</div><div>
       <b>${esc(e.agent || 'agent')}</b> — ${esc((e.requestText || '').slice(0, 80))}<br>
       <span style="color:var(--fg-muted);">${fmtDateTime(e.timestamp)}${e.postCount ? ' · ' + e.postCount + ' post' : ''}</span>
-    </div></div>`).join('') || '<div class="rec-item">Belum ada aktivitas.</div>';
-}
-
-async function loadAgencyOverview(){
-  const data = await api('/api/agency-overview');
-  if(!data) return;
-
-  $('agy-kpi-clients').textContent = data.totalClients;
-  $('agy-kpi-posts').textContent = data.totalPosts;
-  $('agy-kpi-aiusage').textContent = data.aiUsage30d.count;
-  $('agy-kpi-aiusage-cap').textContent = data.aiUsage30d.tokens.toLocaleString() + ' tokens';
-  $('agy-kpi-atrisk').textContent = data.atRiskCount;
-
-  $('agy-clients-body').innerHTML = data.clients.map(c => `
-    <tr>
-      <td><b>${esc(c.name)}</b></td>
-      <td>${c.postCount}</td>
-      <td>${c.nearestDeadline ? esc(c.nearestDeadline.headline) + ' — ' + fmtDateTime(c.nearestDeadline.date) : '—'}</td>
-      <td><span class="status-pill ${c.atRisk ? 'risk' : 'ok'}">${c.atRisk ? 'Perlu perhatian' : 'Aktif'}</span></td>
-      <td>${c.aiUsage30d.count} gen · ${c.aiUsage30d.tokens.toLocaleString()} tokens</td>
-    </tr>`).join('') || '<tr><td colspan="5">Belum ada klien.</td></tr>';
-
-  $('agy-deadlines-list').innerHTML = data.upcomingDeadlines.map(d => `
-    <div class="rec-item"><div class="rec-icon">◆</div><div>
-      <b>${esc(d.headline || '(untitled)')}</b><br>
-      <span style="color:var(--fg-muted);">${esc(d.orgName)} · ${fmtDateTime(d.date)}${d.format ? ' · ' + esc(d.format) : ''}</span>
-    </div></div>`).join('') || '<div class="rec-item">Gak ada deadline dalam 7 hari ke depan.</div>';
-
-  $('agy-activity-list').innerHTML = data.activityFeed.map(e => `
-    <div class="rec-item"><div class="rec-icon">✦</div><div>
-      <b>${esc(e.agent || 'agent')}</b> — ${esc((e.requestText || '').slice(0, 80))}<br>
-      <span style="color:var(--fg-muted);">${esc(e.orgName)} · ${fmtDateTime(e.timestamp)}${e.postCount ? ' · ' + e.postCount + ' post' : ''}</span>
     </div></div>`).join('') || '<div class="rec-item">Belum ada aktivitas.</div>';
 }
 
@@ -1000,6 +1472,53 @@ async function linkDriveFolder(){
   }
 }
 
+/* ---------- Canva (Brand Template autofill — connect account, map templates, send briefs) ---------- */
+let canvaTemplateOptions = [];
+
+async function loadCanvaPage(){
+  const status = await api('/api/canva/status');
+  if(!status){ return; }
+
+  $('canva-not-configured').style.display = status.configured ? 'none' : 'block';
+  $('canva-connect-row').style.display = (status.configured && !status.connected) ? 'flex' : 'none';
+  $('canva-connected-row').style.display = (status.configured && status.connected) ? 'flex' : 'none';
+  $('canva-connected-name').textContent = status.connectedName ? ` as ${status.connectedName}` : '';
+  $('canva-mapping-card').style.display = status.connected ? 'block' : 'none';
+
+  if(status.connected){
+    await loadCanvaTemplateOptions();
+    ['briefCover','feed','story'].forEach(key => {
+      $('canva-map-' + key).value = (status.templates && status.templates[key]) || '';
+    });
+  }
+}
+
+async function loadCanvaTemplateOptions(){
+  const res = await api('/api/canva/brand-templates');
+  canvaTemplateOptions = (res && res.templates) || [];
+  const optionsHtml = '<option value="">— pick a template —</option>' +
+    canvaTemplateOptions.map(t => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('');
+  ['briefCover','feed','story'].forEach(key => { $('canva-map-' + key).innerHTML = optionsHtml; });
+  if(!res || !res.ok) $('canva-mapping-status').textContent = (res && res.error) || 'Could not load Brand Templates.';
+}
+
+async function saveCanvaMapping(){
+  const templates = {
+    briefCover: $('canva-map-briefCover').value,
+    feed: $('canva-map-feed').value,
+    story: $('canva-map-story').value
+  };
+  $('canva-mapping-status').textContent = 'Saving…';
+  const res = await api('/api/canva/template-mapping', { method:'POST', body: JSON.stringify({ templates }) });
+  $('canva-mapping-status').textContent = (res && res.ok) ? 'Saved ✓' : ((res && res.error) || 'Could not save.');
+}
+
+async function disconnectCanva(){
+  if(!confirm('Disconnect this Canva account?')) return;
+  await api('/api/canva/disconnect', { method:'POST' });
+  loadCanvaPage();
+}
+
 async function createNewClient(){
   const input = $('dira-new-client-name');
   const name = input.value.trim();
@@ -1016,84 +1535,48 @@ async function createNewClient(){
   }
 }
 
-// Competitors is cross-client, same pattern as Directory A: a client-list landing view, then a
-// per-client detail view — not scoped to whichever client is active in the session.
-let compDetailSlug = null;
-
-async function loadCompetitorsPage(){
-  compDetailSlug = null;
-  $('comp-list-view').style.display = 'block';
-  $('comp-detail-view').style.display = 'none';
-  await renderCompetitorsClientList();
+// Competitor tracking now lives directly on the Competitor Dashboard (Analytics page) instead of
+// its own cross-client tab — this instance is single-client (Buranchi), so a client-picker landing
+// view added nothing. Instagram is the only platform actually scraped; LinkedIn entries are stored
+// for reference so the list can grow before that pipeline exists.
+async function loadTrackedCompetitors(){
+  const list = await api('/api/competitors/' + currentOrgSlug) || [];
+  renderTrackedCompetitors(list);
 }
 
-async function renderCompetitorsClientList(){
-  $('comp-client-list').innerHTML = '<div class="rec-item">Loading…</div>';
-  const clients = await api('/api/competitors/overview') || [];
-  $('comp-client-list').innerHTML = clients.map(c => `
-    <div class="dira-client-row">
-      <div>
-        <div class="dira-client-name">${esc(c.name)}</div>
-        <div class="dira-client-meta">${c.count} kompetitor dilacak</div>
-      </div>
-      <div class="dira-client-actions">
-        <button class="btn btn-accent btn-sm" data-open-comp="${esc(c.slug)}">${c.count ? 'View / edit' : '+ Add competitors'}</button>
-      </div>
-    </div>`).join('') || '<div class="rec-item">Belum ada klien.</div>';
-  $('comp-client-list').querySelectorAll('[data-open-comp]').forEach(btn => {
-    btn.addEventListener('click', () => openCompetitorsDetail(btn.dataset.openComp));
-  });
-}
-
-async function openCompetitorsDetail(slug){
-  compDetailSlug = slug;
-  $('comp-list-view').style.display = 'none';
-  $('comp-detail-view').style.display = 'block';
-  const client = (await api('/api/clients') || []).find(c => c.slug === slug);
-  $('comp-detail-title').textContent = client ? client.name : slug;
-  $('comp-new-name').value = '';
-  $('comp-new-ig').value = '';
-  $('comp-add-status').textContent = '';
-  await renderCompetitorRows();
-}
-
-async function renderCompetitorRows(){
-  const list = await api('/api/competitors/' + compDetailSlug) || [];
+function renderTrackedCompetitors(list){
   $('comp-rows').innerHTML = list.map(c => `
     <div class="comp-row">
       <div class="comp-row-info">
         <span class="comp-swatch" style="background:${esc(c.color)};"></span>
         <span class="comp-row-name">${esc(c.brandName)}</span>
-        <span class="comp-row-handle">@${esc(c.handle)}</span>
+        <span class="comp-row-handle">${c.platform === 'linkedin' ? 'LinkedIn' : '@' + esc(c.handle)}</span>
       </div>
       <button class="btn btn-outline btn-sm" data-remove-comp="${esc(c.handle)}">Remove</button>
-    </div>`).join('') || '<div class="rec-item">Belum ada kompetitor buat klien ini.</div>';
+    </div>`).join('') || '<div class="rec-item">No competitors tracked yet.</div>';
   $('comp-rows').querySelectorAll('[data-remove-comp]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await api('/api/competitors/' + compDetailSlug + '/' + encodeURIComponent(btn.dataset.removeComp), { method:'DELETE' });
-      renderCompetitorRows();
+      await api('/api/competitors/' + currentOrgSlug + '/' + encodeURIComponent(btn.dataset.removeComp), { method:'DELETE' });
+      loadTrackedCompetitors();
     });
   });
 }
 
 async function addCompetitor(){
   const name = $('comp-new-name').value.trim();
-  const igLink = $('comp-new-ig').value.trim();
-  if(!name || !igLink) return;
+  const platform = $('comp-new-platform').value;
+  const link = $('comp-new-link').value.trim();
+  if(!name || !link) return;
   $('comp-add-status').textContent = 'Adding…';
-  const res = await api('/api/competitors/' + compDetailSlug, { method:'POST', body: JSON.stringify({ name, igLink }) });
+  const res = await api('/api/competitors/' + currentOrgSlug, { method:'POST', body: JSON.stringify({ name, platform, link }) });
   if(res && res.ok){
     $('comp-new-name').value = '';
-    $('comp-new-ig').value = '';
+    $('comp-new-link').value = '';
     $('comp-add-status').textContent = '';
-    renderCompetitorRows();
+    loadTrackedCompetitors();
   } else {
-    $('comp-add-status').textContent = (res && res.error) || 'Gagal nambah kompetitor.';
+    $('comp-add-status').textContent = (res && res.error) || 'Could not add competitor.';
   }
-}
-
-function closeCompetitorsDetail(){
-  loadCompetitorsPage();
 }
 
 async function loadHistory(){
@@ -1127,7 +1610,7 @@ async function loadHistory(){
     <div class="kpi-card">
       <div class="top-row"><div class="lab">By agent</div></div>
       <div style="font-size:13px; line-height:1.9; margin-top:10px;">
-        ${['gemini','gemini-chat','intelligence','claude','manual'].map(a => `${agentBadgeByName(a)} ${byAgent[a] ? byAgent[a].requests : 0} req · ${byAgent[a] ? byAgent[a].posts : 0} posts`).join('<br>')}
+        ${['gemini','gemini-chat','intelligence','claude','claude-chat','gpt-chat','kimi-chat','manual'].map(a => `${agentBadgeByName(a)} ${byAgent[a] ? byAgent[a].requests : 0} req · ${byAgent[a] ? byAgent[a].posts : 0} posts`).join('<br>')}
       </div>
     </div>
   `;
@@ -1216,6 +1699,63 @@ let ccConversations = [];
 let activeCcConversationId = null;
 let ccBusy = false;
 let ccTurnCounter = 0; // gives every rendered intelligence-result card a unique DOM id, so multiple can coexist in one conversation
+let ccAttachments = []; // [{name, mimeType, kind:'text'|'image', content}] — content is text or base64 (no data: prefix)
+const CC_PROVIDER_LABELS = { gemini: 'Gemini', claude: 'Claude', gpt: 'GPT', kimi: 'Kimi' };
+
+const ATTACHMENT_TEXT_TYPES = /\.(txt|md|markdown|csv|json)$/i;
+
+// Shared by Creative Chat and the Content Plan "Generate with AI" form — both let the user attach
+// images (sent as inlineData for the model to see) or small text docs (inlined into the prompt).
+async function readAttachmentFiles(files){
+  const results = [];
+  for(const file of files){
+    const isImage = file.type.startsWith('image/');
+    try {
+      if(isImage){
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        results.push({ name: file.name, mimeType: file.type, kind: 'image', content: dataUrl.split(',')[1] });
+      } else if(ATTACHMENT_TEXT_TYPES.test(file.name)){
+        const text = await file.text();
+        results.push({ name: file.name, mimeType: file.type || 'text/plain', kind: 'text', content: text });
+      } else {
+        alert(`"${file.name}" isn't a supported attachment type (images, or .txt/.md/.csv/.json).`);
+      }
+    } catch(e){
+      alert(`Could not read "${file.name}".`);
+    }
+  }
+  return results;
+}
+
+function renderAttachmentChips(containerId, list, onRemove){
+  $(containerId).innerHTML = list.map((a, idx) => `
+    <span class="cc-attachment-chip">${a.kind === 'image' ? '🖼️' : '📄'} ${esc(a.name)}<button type="button" data-att-remove="${idx}">×</button></span>
+  `).join('');
+  $(containerId).querySelectorAll('[data-att-remove]').forEach(btn => {
+    btn.addEventListener('click', () => onRemove(parseInt(btn.dataset.attRemove, 10)));
+  });
+}
+
+async function addCcAttachments(){
+  const input = $('cc-file-input');
+  ccAttachments.push(...await readAttachmentFiles(Array.from(input.files || [])));
+  input.value = '';
+  renderCcAttachments();
+}
+
+function removeCcAttachment(idx){
+  ccAttachments.splice(idx, 1);
+  renderCcAttachments();
+}
+
+function renderCcAttachments(){
+  renderAttachmentChips('cc-attachments', ccAttachments, removeCcAttachment);
+}
 
 function tagList(items){
   if(!items || !items.length) return '<span style="color:var(--fg-soft); font-size:12px;">None flagged.</span>';
@@ -1401,7 +1941,6 @@ function renderCcProposal(proposedPosts, conversationId, turnIndex, alreadyCommi
         if(item.directoryARef) usedDir.add(item.directoryARef.id);
       });
       posts = await api('/api/posts/bulk', { method:'POST', body: JSON.stringify(proposedPosts) }) || posts;
-      render();
       await api(`/api/creative-chat/conversations/${conversationId}/commit`, { method:'POST', body: JSON.stringify({ turnIndex }) });
       e.target.textContent = 'Added to plan ✓';
     });
@@ -1537,7 +2076,6 @@ function renderCcIntelligenceCard(result, conversationId, turnIndex, alreadyComm
         }
       });
       posts = await api('/api/posts/bulk', { method:'POST', body: JSON.stringify(selected) }) || posts;
-      render();
       await api(`/api/creative-chat/conversations/${conversationId}/commit`, { method:'POST', body: JSON.stringify({ turnIndex }) });
       e.target.textContent = `Added ${selected.length} to plan ✓`;
       checkboxes().forEach(c => c.disabled = true);
@@ -1604,17 +2142,22 @@ async function sendCcMessage(){
   if(ccBusy) return;
   const input = $('cc-input');
   const message = input.value.trim();
-  if(!message) return;
+  if(!message && !ccAttachments.length) return;
   await ensureCcConversation();
 
+  const attachments = ccAttachments;
+  const provider = $('cc-model-select').value;
+  const attachmentNote = attachments.length ? attachments.map(a => `📎 ${a.name}`).join(' ') : '';
   input.value = '';
+  ccAttachments = [];
+  renderCcAttachments();
   ccBusy = true;
   $('btn-cc-send').disabled = true;
-  $('cc-status').textContent = 'Gemini is thinking…';
-  renderCcChatBubble('user', message);
+  $('cc-status').textContent = `${CC_PROVIDER_LABELS[provider] || provider} is thinking…`;
+  renderCcChatBubble('user', [message, attachmentNote].filter(Boolean).join('\n'));
 
   try {
-    const res = await api(`/api/creative-chat/conversations/${activeCcConversationId}/message`, { method:'POST', body: JSON.stringify({ message }) });
+    const res = await api(`/api/creative-chat/conversations/${activeCcConversationId}/message`, { method:'POST', body: JSON.stringify({ message, provider, attachments }) });
     if(res && res.ok){
       if(res.needsFullAnalysis){
         if(res.ackTokenUsage) appendCcTokenCaption('user', fmtInputTokens(res.ackTokenUsage));
@@ -1672,379 +2215,15 @@ async function saveAgentBehavior(){
   if(res && res.ok) AGENT_KEYS.forEach(key => renderRulesList(res[key] || [], 'ab-extra-' + key));
 }
 
-function genDateOf(p){ return p.createdAt ? p.createdAt.slice(0,10) : null; }
-
-function populateGenDateFilters(){
-  const dates = [...new Set(posts.map(genDateOf).filter(Boolean))].sort().reverse();
-  ['cal-date-filter','prev-date-filter'].forEach(id => {
-    const sel = $(id);
-    const current = sel.value;
-    sel.innerHTML = '<option value="all">All dates</option>' + dates.map(d =>
-      `<option value="${d}">${fmtDate(d)}</option>`
-    ).join('');
-    if(dates.includes(current)) sel.value = current;
-  });
-}
-
-function applyPlanFilters(agentFilterId, dateFilterId){
-  const agent = $(agentFilterId).value;
-  const date = $(dateFilterId).value;
-  return posts.filter(p => {
-    if(agent !== 'all' && (p.generatedBy || 'claude') !== agent) return false;
-    if(date !== 'all' && genDateOf(p) !== date) return false;
-    return true;
-  });
-}
-
-function render(){
-  const total = posts.length;
-  const feed = posts.filter(p=>p.format==='feed').length;
-  const story = posts.filter(p=>p.format==='story').length;
-  const eventPct = total ? Math.round(100*posts.filter(p=>p.event).length/total) : 0;
-
-  $('kpi-total').textContent = total;
-  $('kpi-feed').textContent = feed;
-  $('kpi-feed-cap').textContent = 'of ' + total;
-  $('kpi-story').textContent = story;
-  $('kpi-story-cap').textContent = 'of ' + total;
-  $('kpi-event').textContent = eventPct + '%';
-
-  $('empty-state').style.display = total ? 'none' : 'block';
-
-  populateGenDateFilters();
-
-  const calPosts = applyPlanFilters('cal-agent-filter', 'cal-date-filter');
-  $('cal-body').innerHTML = calPosts.map((p,i) => `
-    <tr onclick="openDetail('${p.id}')" style="cursor:pointer;">
-      <td>#${String(i+1).padStart(2,'0')}</td>
-      <td>${esc(p.date)}</td>
-      <td>${esc(p.day)}</td>
-      <td><span class="fmt-pill ${p.format}">${p.format}</span>${p.event ? '<span class="event-flag">event</span>' : ''}</td>
-      <td>${esc(p.headline)}</td>
-      <td>${esc(p.persona||'')}</td>
-      <td>${esc(p.priority||'')}</td>
-      <td>${agentBadge(p)}</td>
-      <td class="row-actions"><button onclick="event.stopPropagation(); removePost('${p.id}')">Remove</button></td>
-    </tr>`).join('');
-  renderCalendarGrid(calPosts);
-
-  const prevPosts = applyPlanFilters('prev-agent-filter', 'prev-date-filter');
-  $('cards').innerHTML = prevPosts.map(p => mockupCard(p)).join('');
-}
-
-// The scheduled date on a post is a loose string ("Aug 8" or an ISO "2026-08-20"),
-// never guaranteed to carry a year, so the grid has to reconstruct a real Date from it —
-// falling back to the generation year (createdAt) when the string itself has none.
-function parsePostDate(p){
-  if(!p.date) return null;
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.date.trim());
-  if(iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
-  const year = p.createdAt ? new Date(p.createdAt).getFullYear() : new Date().getFullYear();
-  const guess = new Date(`${p.date} ${year}`);
-  return isNaN(guess.getTime()) ? null : guess;
-}
-
-function calDateKey(d){
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-let calGridMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-let calViewMode = localStorage.getItem('compass-cal-view') || 'grid';
-
-function renderCalendarGrid(calPosts){
-  const byDate = {};
-  calPosts.forEach(p => {
-    const d = parsePostDate(p);
-    if(!d) return;
-    const key = calDateKey(d);
-    (byDate[key] = byDate[key] || []).push(p);
-  });
-
-  const monthStart = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth(), 1);
-  $('cal-grid-month-label').textContent = monthStart.toLocaleDateString('en-US', { month:'long', year:'numeric' });
-
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(gridStart.getDate() - gridStart.getDay());
-
-  const todayKey = calDateKey(new Date());
-  let html = '';
-  for(let i = 0; i < 42; i++){
-    const cellDate = new Date(gridStart);
-    cellDate.setDate(gridStart.getDate() + i);
-    const key = calDateKey(cellDate);
-    const inMonth = cellDate.getMonth() === monthStart.getMonth();
-    const isToday = key === todayKey;
-    const dayPosts = byDate[key] || [];
-    const shown = dayPosts.slice(0, 3);
-    const extra = dayPosts.length - shown.length;
-    html += `<div class="cal-cell ${inMonth ? '' : 'cal-cell-out'} ${isToday ? 'cal-cell-today' : ''}">
-      <div class="cal-cell-date">${cellDate.getDate()}${isToday ? '<span class="cal-today-dot"></span>' : ''}</div>
-      <div class="cal-cell-posts">
-        ${shown.map(p => `<div class="cal-chip ${(AGENT_BADGE_MAP[p.generatedBy||'claude']||AGENT_BADGE_MAP.claude).cls}" title="${esc(p.headline||'')}" onclick="openDetail('${p.id}')" style="cursor:pointer;">${esc(p.headline || '(untitled)')}</div>`).join('')}
-        ${extra > 0 ? `<div class="cal-chip-more">+${extra} more</div>` : ''}
-      </div>
-    </div>`;
-  }
-  $('cal-grid').innerHTML = html;
-
-  const todayPosts = byDate[todayKey] || [];
-  const banner = $('cal-today-banner');
-  if(todayPosts.length){
-    banner.style.display = 'flex';
-    banner.innerHTML = `<span class="cal-banner-icon">🔔</span><span>${todayPosts.length} post${todayPosts.length > 1 ? 's' : ''} due today — ${todayPosts.map(p => esc(p.headline || '(untitled)')).join(', ')}</span>`;
-  } else {
-    banner.style.display = 'none';
-  }
-}
-
-function setCalView(mode){
-  calViewMode = mode;
-  localStorage.setItem('compass-cal-view', mode);
-  $('cal-view-grid').classList.toggle('active', mode === 'grid');
-  $('cal-view-list').classList.toggle('active', mode === 'list');
-  $('cal-grid-panel').style.display = mode === 'grid' ? 'block' : 'none';
-  $('cal-list-panel').style.display = mode === 'list' ? 'block' : 'none';
-}
-
-function mockupCard(p){
-  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
-  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
-  const headlinePos = p.headlinePos || 'bottom';
-  // In the compact thumbnail, force the badge to the corner opposite the headline so long headlines never collide with it.
-  // The stored badgePos is still honored as-is in the full detail view / export.
-  const thumbBadgePos = p.badge ? (headlinePos === 'top' ? 'bottom' : 'top') : '';
-  const badgeHtml = p.badge ? `<div class="badge ${thumbBadgePos}">${esc(p.badge)}</div>` : '';
-  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
-  const photoInner = p.frame === 'yellow-frame'
-    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
-    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
-  return `
-  <div class="post-card" onclick="openDetail('${p.id}')">
-    <div class="mockup ${p.base} ${ratio}">
-      <div class="${frameClass}">${photoInner}</div>
-      ${badgeHtml}
-      <div class="headline-block pos-${headlinePos}">
-        <div class="${hClass}">${esc(p.headline)}</div>
-        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
-      </div>
-    </div>
-    <div class="meta">
-      <div class="kicker">${esc(p.date)} · ${p.format}</div>
-      <div class="cap">${esc(p.caption||'').slice(0,120)}</div>
-      <div class="row-actions">
-        <button onclick="event.stopPropagation(); openDetail('${p.id}')">View detail</button>
-        <button onclick="event.stopPropagation(); removePost('${p.id}')">Remove</button>
-      </div>
-    </div>
-  </div>`;
-}
-
 /* ---------- post detail modal ---------- */
-async function openDetail(id){
-  let p = posts.find(x => x.id === id);
-  if(!p) return;
-
-  // Every post should show a benchmark — auto-pick and save one the first time this post is opened,
-  // instead of making the user hunt for a match themselves.
-  if(!p.referencePost || !p.directoryARef){
-    const guess = p.referencePost ? null : autoResolveReferenceForPost(p, usedReferenceUrls());
-    const dirGuess = p.directoryARef ? null : autoResolveDirectoryAReference(p, usedDirectoryARefIds());
-    if(guess || dirGuess){
-      const body = {};
-      if(guess) body.referencePost = guess;
-      if(dirGuess) body.directoryARef = dirGuess;
-      const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify(body) });
-      if(updated){
-        const idx = posts.findIndex(x => x.id === id);
-        if(idx > -1) posts[idx] = updated;
-        p = updated;
-      }
-    }
-  }
-
-  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
-  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
-  const detailHeadlinePos = p.headlinePos || 'bottom';
-  // Same collision-avoidance as the thumbnail cards: force the badge to the corner opposite
-  // the headline so long copy never overlaps it, regardless of the stored badgePos.
-  const detailBadgePos = p.badge ? (detailHeadlinePos === 'top' ? 'bottom' : 'top') : '';
-  const badgeHtml = p.badge ? `<div class="badge ${detailBadgePos}">${esc(p.badge)}</div>` : '';
-  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
-  const photoInner = p.frame === 'yellow-frame'
-    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
-    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
-  const briefHtml = (p.brief && p.brief.length) ? `<ul class="detail-list">${p.brief.map(b=>`<li>${esc(b)}</li>`).join('')}</ul>` : `<div class="detail-empty">No design brief bullets on this post.</div>`;
-
-  const ourMockupHtml = `
-    <div class="mockup ${p.base} ${ratio}" style="width:100%; max-width:320px;">
-      <div class="${frameClass}">${photoInner}</div>
-      ${badgeHtml}
-      <div class="headline-block pos-${detailHeadlinePos}">
-        <div class="${hClass}">${esc(p.headline)}</div>
-        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
-      </div>
-    </div>`;
-
-  // The attached reference is a frozen snapshot (so caption/category/stats stay stable), but
-  // Instagram's image URLs expire within hours — always try the freshest URL for the same post
-  // from whatever's currently loaded, and only fall back to the frozen one if it's gone from the data.
-  const rawRef = p.referencePost;
-  const fresh = rawRef && COMPETITOR_POSTS.find(x => x.url === rawRef.url);
-  const ref = rawRef ? Object.assign({}, rawRef, fresh ? { display_url: fresh.display_url } : {}) : null;
-  const withPhoto = [...COMPETITOR_POSTS].filter(x => x.display_url).sort((a,b) => (b.engagement_rate_pct||0) - (a.engagement_rate_pct||0));
-  const pickerOptions = '<option value="">Choose a competitor post…</option>' + withPhoto.map(x =>
-    `<option value="${esc(x.url)}">${esc(x.brand_name)} — ${esc(x.category)} — ${fmtPct(x.engagement_rate_pct||0)}</option>`
-  ).join('');
-
-  const compareHtml = `
-    ${ref ? `<div style="text-align:right; margin-bottom:10px;"><button class="btn btn-outline btn-sm" onclick="openLightbox('${p.id}')">⤢ View full size, side by side</button></div>` : ''}
-    <div class="compare-grid">
-      <div class="compare-col">
-        <div class="compare-label ours">Our Recommendation</div>
-        <div class="detail-mockup-wrap">${ourMockupHtml}</div>
-      </div>
-      <div class="compare-col">
-        <div class="compare-label theirs">Competitor Reference</div>
-        ${ref ? `
-        <div class="compare-ref-photo">
-          ${ref.display_url
-            ? `<img src="${mediaUrl(ref.display_url)}" alt="${esc(ref.brand_name)} reference post" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'compare-ref-noimg',textContent:'Image expired — Instagram links go stale after a few hours. Rescrape to refresh, or open the original post below.'}))">`
-            : `<div class="compare-ref-noimg">No image captured</div>`}
-        </div>
-        <div class="compare-ref-meta">
-          <span class="competitor-badge" style="background:${(ACCOUNT_COLORS[ref.account]||'#726654')}22;color:${ACCOUNT_COLORS[ref.account]||'#726654'}">${esc(ref.brand_name)}</span>
-          <span class="chip" style="cursor:default;">${esc(ref.category)}</span>
-          <span class="chip" style="cursor:default;">${fmtPct(ref.engagement_rate_pct||0)} eng.</span>
-        </div>
-        <p class="compare-ref-caption">${esc(ref.caption_preview)}</p>
-        <a class="post-link" href="${ref.url}" target="_blank" rel="noopener">Open original post →</a>
-        <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="changeDetailReference('${p.id}')">Change reference</button>
-        ` : `
-        <div class="compare-ref-empty">
-          <p>No competitor benchmark attached to this post yet.</p>
-          <select id="detail-ref-picker">${pickerOptions}</select>
-          <button class="btn btn-accent btn-sm" style="margin-top:8px;" onclick="attachDetailReference('${p.id}')">Attach reference</button>
-        </div>`}
-      </div>
-    </div>`;
-
-  const directoryARefHtml = p.directoryARef ? `
-    <div class="dira-ref-block">
-      <div class="dira-ref-label">From your own archive (Directory A)</div>
-      <a class="dira-ref-photo" href="${esc(p.directoryARef.webViewLink)}" target="_blank" title="${esc(p.directoryARef.name)}">
-        <img src="${esc(p.directoryARef.thumbnailUrl)}" loading="lazy">
-      </a>
-      <div class="dira-ref-name">${esc(p.directoryARef.name)}</div>
-      <div class="dira-ref-path">${esc(p.directoryARef.path)}</div>
-    </div>` : '';
-
-  const specHtml = `
-    <div class="detail-spec">
-      <div class="detail-tags">
-        <span class="fmt-pill ${p.format}">${p.format === 'feed' ? 'Feed · 4:5' : 'Story · 9:16'}</span>
-        ${p.event ? '<span class="event-flag">event-arm</span>' : ''}
-        <span class="chip" style="cursor:default;">${esc(p.date)} · ${esc(p.day||'')}</span>
-      </div>
-      <div class="detail-row"><div class="detail-lab">Headline</div><div class="detail-val serif-val">${esc(p.headline)}</div></div>
-      ${p.sub ? `<div class="detail-row"><div class="detail-lab">Sub-headline</div><div class="detail-val">${esc(p.sub)}</div></div>` : ''}
-      <div class="detail-row"><div class="detail-lab">Persona</div><div class="detail-val">${esc(p.persona||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">Business priority</div><div class="detail-val">${esc(p.priority||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">Photo direction</div><div class="detail-val">${esc(p.photo||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">Design brief</div>${briefHtml}</div>
-      <div class="detail-row"><div class="detail-lab">Caption</div><div class="detail-val caption-box">${esc(p.caption||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">CTA / data capture</div><div class="detail-val cta-box">${esc(p.cta||'—')}</div></div>
-    </div>`;
-
-  $('detail-body').innerHTML = `
-    <div class="detail-grid has-compare">
-      <details class="detail-compare-collapse">
-        <summary>Mockup vs. competitor reference</summary>
-        ${compareHtml}
-      </details>
-      <div class="detail-content-row ${p.directoryARef ? '' : 'no-dira'}">
-        ${specHtml}
-        ${directoryARefHtml}
-      </div>
-    </div>`;
-  $('detail-modal').classList.add('open');
-  $('detail-overlay').classList.add('open');
-}
 function closeDetail(){
   $('detail-modal').classList.remove('open');
   $('detail-overlay').classList.remove('open');
 }
 
-// Large side-by-side view for handing off to a designer — real Instagram export dimensions on
-// our mockup, native resolution on the competitor photo. Opens as an overlay inside the same
-// page (not a new tab), so the sidebar/topbar and login session stay exactly as they were.
-function openLightbox(id){
-  const p = posts.find(x => x.id === id);
-  if(!p || !p.referencePost) return;
-  const fresh = COMPETITOR_POSTS.find(x => x.url === p.referencePost.url);
-  const ref = Object.assign({}, p.referencePost, fresh ? { display_url: fresh.display_url } : {});
-  const specDims = p.format === 'feed' ? '1080 × 1350px (4:5)' : '1080 × 1920px (9:16)';
-  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
-  const detailHeadlinePos = p.headlinePos || 'bottom';
-  const detailBadgePos = p.badge ? (detailHeadlinePos === 'top' ? 'bottom' : 'top') : '';
-  const badgeHtml = p.badge ? `<div class="badge ${detailBadgePos}">${esc(p.badge)}</div>` : '';
-  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
-  const photoInner = p.frame === 'yellow-frame'
-    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
-    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
-  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
-
-  $('lightbox-body').innerHTML = `
-    <div class="lightbox-grid">
-      <div class="lightbox-col">
-        <div class="compare-label ours">Our Recommendation</div>
-        <div class="lightbox-dims">${specDims} — export size for the designer</div>
-        <div class="mockup ${p.base} ${ratio} lightbox-mockup">
-          <div class="${frameClass}">${photoInner}</div>
-          ${badgeHtml}
-          <div class="headline-block pos-${detailHeadlinePos}">
-            <div class="${hClass}">${esc(p.headline)}</div>
-            ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
-          </div>
-        </div>
-      </div>
-      <div class="lightbox-col">
-        <div class="compare-label theirs">Competitor Reference — ${esc(ref.brand_name)}</div>
-        <div class="lightbox-dims" id="lightbox-ref-dims">Loading dimensions…</div>
-        ${ref.display_url
-          ? `<img class="lightbox-ref-img" src="${mediaUrl(ref.display_url)}" alt="${esc(ref.brand_name)} reference post"
-               onload="document.getElementById('lightbox-ref-dims').textContent = this.naturalWidth + ' × ' + this.naturalHeight + 'px (native)'"
-               onerror="document.getElementById('lightbox-ref-dims').textContent='Image unavailable'; this.replaceWith(Object.assign(document.createElement('div'),{className:'compare-ref-noimg',textContent:'Image expired — rescrape to refresh.'}))">`
-          : `<div class="compare-ref-noimg">No image captured</div>`}
-      </div>
-    </div>`;
-  $('lightbox-modal').classList.add('open');
-  $('lightbox-overlay').classList.add('open');
-}
 function closeLightbox(){
   $('lightbox-modal').classList.remove('open');
   $('lightbox-overlay').classList.remove('open');
-}
-
-async function attachDetailReference(id){
-  const picker = $('detail-ref-picker');
-  const url = picker ? picker.value : '';
-  if(!url){ alert('Pick a competitor post first.'); return; }
-  const referencePost = resolveReferencePost(url);
-  const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify({ referencePost }) });
-  if(updated){
-    const idx = posts.findIndex(p => p.id === id);
-    if(idx > -1) posts[idx] = updated;
-    openDetail(id);
-  }
-}
-
-async function changeDetailReference(id){
-  const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify({ referencePost: null }) });
-  if(updated){
-    const idx = posts.findIndex(p => p.id === id);
-    if(idx > -1) posts[idx] = updated;
-    openDetail(id);
-  }
 }
 
 function exportPlan(){

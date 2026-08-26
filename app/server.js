@@ -149,6 +149,14 @@ function parseInstagramHandle(input) {
 function readPosts(slug) { return readJson(orgPostsFile(slug), []); }
 function writePosts(slug, posts) { writeJson(orgPostsFile(slug), posts); }
 
+function orgMoodboardFile(slug) { return path.join(orgDataDir(slug), 'moodboard.json'); }
+function readMoodboard(slug) { return readJson(orgMoodboardFile(slug), []); }
+function writeMoodboard(slug, items) { writeJson(orgMoodboardFile(slug), items); }
+
+function orgCampaignBriefsFile(slug) { return path.join(orgDataDir(slug), 'campaign-briefs.json'); }
+function readCampaignBriefs(slug) { return readJson(orgCampaignBriefsFile(slug), []); }
+function writeCampaignBriefs(slug, items) { writeJson(orgCampaignBriefsFile(slug), items); }
+
 // --- Internal WCCN staff accounts ---
 // Nobody outside the agency logs into this tool — clients are workspaces picked from inside
 // the app (see /api/clients, /api/session/client), never separate accounts. This file holds
@@ -166,18 +174,12 @@ function requireAuth(req, res, next) {
 // A logged-in staffer isn't automatically "in" a client's data — they pick one via
 // /api/session/client first (see the client-picker UI). Routes that touch a specific client's
 // data (posts, chat, guardrails, Directory A, ...) need this in addition to requireAuth; routes
-// that operate across clients or before one is picked (me, clients, agency-overview, logout)
-// don't.
+// that operate before one is picked (me, clients, logout) don't.
 function requireActiveClient(req, res, next) {
   if (req.session && req.session.orgSlug) return next();
   return res.status(400).json({ error: 'No client selected' });
 }
-const CLIENT_AGNOSTIC_API_PATHS = ['/api/me', '/api/clients', '/api/session/client', '/api/logout', '/api/agency-overview'];
-
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.loggedIn && req.session.isAdmin) return next();
-  return res.status(403).json({ error: 'Admin access only' });
-}
+const CLIENT_AGNOSTIC_API_PATHS = ['/api/me', '/api/clients', '/api/session/client', '/api/logout'];
 
 // --- Auth routes ---
 app.post('/api/login', (req, res) => {
@@ -190,6 +192,13 @@ app.post('/api/login', (req, res) => {
   req.session.internalUsername = user.username;
   req.session.name = user.name;
   req.session.isAdmin = !!user.isAdmin;
+
+  // This instance is single-client (Buranchi) — skip the client picker and drop straight into
+  // it. If more clients ever get added, the picker comes back automatically since this only
+  // fires when there's exactly one to choose from anyway.
+  const orgs = loadOrgs();
+  if (orgs.length === 1) req.session.orgSlug = orgs[0].slug;
+
   return res.json({ ok: true, name: user.name });
 });
 
@@ -334,14 +343,10 @@ app.post('/api/directory-a/:slug/sync', requireAuth, (req, res) => {
   res.json({ ok: true, started: true });
 });
 
-// --- Competitor list management (cross-client, same spirit as Directory A above — browse or
-// edit any client's competitor list without switching the active session client). This list is
-// what drives scraping direction: scrapeCompetitorsForOrg() only ever scrapes accounts named
-// here, nothing is ever discovered automatically.
-app.get('/api/competitors/overview', requireAuth, (req, res) => {
-  res.json(loadOrgs().map(o => ({ slug: o.slug, name: o.name, count: (o.competitors || []).length })));
-});
-
+// --- Competitor list management (scoped to the logged-in org's own client — managed inline on
+// the Competitor Dashboard). This list is what drives scraping direction: scrapeCompetitorsForOrg()
+// only ever scrapes Instagram accounts named here, nothing is ever discovered automatically.
+// LinkedIn competitors are stored the same way but never scraped — no LinkedIn pipeline exists yet.
 app.get('/api/competitors/:slug', requireAuth, (req, res) => {
   const org = findOrgBySlug(req.params.slug);
   if (!org) return res.status(404).json({ error: 'Unknown client' });
@@ -354,16 +359,26 @@ app.post('/api/competitors/:slug', requireAuth, (req, res) => {
   if (!org) return res.status(404).json({ error: 'Unknown client' });
 
   const name = ((req.body && req.body.name) || '').trim();
-  const handle = parseInstagramHandle((req.body && req.body.igLink) || '');
+  const platform = (req.body && req.body.platform) === 'linkedin' ? 'linkedin' : 'instagram';
+  const link = ((req.body && req.body.link) || '').trim();
   if (!name) return res.status(400).json({ error: 'Competitor name is required.' });
-  if (!handle) return res.status(400).json({ error: "Couldn't find an Instagram handle in that link." });
+
+  let handle, extra = {};
+  if (platform === 'instagram') {
+    handle = parseInstagramHandle(link);
+    if (!handle) return res.status(400).json({ error: "Couldn't find an Instagram handle in that link." });
+  } else {
+    if (!link) return res.status(400).json({ error: 'A LinkedIn link is required.' });
+    handle = 'li-' + slugify(name);
+    extra.linkedinUrl = link;
+  }
 
   org.competitors = org.competitors || [];
   if (org.competitors.find(c => c.handle === handle)) {
-    return res.status(400).json({ error: `@${handle} is already on this client's list.` });
+    return res.status(400).json({ error: `${name} is already on this client's list.` });
   }
   const color = COMPETITOR_COLOR_PALETTE[org.competitors.length % COMPETITOR_COLOR_PALETTE.length];
-  org.competitors.push({ handle, brandName: name, color });
+  org.competitors.push({ handle, brandName: name, color, platform, ...extra });
   saveOrgs(orgs);
   res.json({ ok: true, competitors: org.competitors });
 });
@@ -452,35 +467,7 @@ function computeOrgOverview(org, now, in7Days, ago7Days, ago30Days) {
   };
 }
 
-app.get('/api/agency-overview', requireAdmin, (req, res) => {
-  const orgs = loadOrgs();
-  const now = new Date();
-  const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const ago7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const ago30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-  const perOrg = orgs.map(org => computeOrgOverview(org, now, in7Days, ago7Days, ago30Days));
-  const clients = perOrg.map(({ upcomingEntries, activityEntries, ...rest }) => rest);
-  const allUpcoming = perOrg.flatMap(o => o.upcomingEntries).sort((a, b) => new Date(a.date) - new Date(b.date));
-  const allActivity = perOrg.flatMap(o => o.activityEntries).sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-
-  res.json({
-    totalClients: orgs.length,
-    totalPosts: clients.reduce((s, c) => s + c.postCount, 0),
-    aiUsage30d: {
-      count: clients.reduce((s, c) => s + c.aiUsage30d.count, 0),
-      tokens: clients.reduce((s, c) => s + c.aiUsage30d.tokens, 0)
-    },
-    atRiskCount: clients.filter(c => c.atRisk).length,
-    clients,
-    upcomingDeadlines: allUpcoming.slice(0, 10),
-    activityFeed: allActivity.slice(0, 15)
-  });
-});
-
-// --- Dashboard (single-org overview — the tenant-scoped counterpart to Agency Overview, which
-// only admins can see across every client). Same shape of data, always scoped to whichever org
-// is logged in — no client comparison table since there's only ever one org here.
+// --- Dashboard (single-org overview, always scoped to whichever org is logged in).
 app.get('/api/dashboard', (req, res) => {
   const org = findOrgBySlug(req.session.orgSlug);
   const now = new Date();
@@ -569,6 +556,282 @@ app.delete('/api/posts/:id', (req, res) => {
 app.delete('/api/posts', (req, res) => {
   writePosts(req.session.orgSlug, []);
   res.json({ ok: true });
+});
+
+// --- Moodboard API (scoped to the logged-in org) ---
+// Same paste-from-Claude-chat shape as Posts: no per-item validation on the bulk load,
+// just tag each item with an id/createdAt/generatedBy and store it.
+app.get('/api/moodboard', (req, res) => res.json(readMoodboard(req.session.orgSlug)));
+
+app.post('/api/moodboard/bulk', (req, res) => {
+  const items = readMoodboard(req.session.orgSlug);
+  const incoming = Array.isArray(req.body) ? req.body : [];
+  const batchTime = new Date().toISOString();
+  incoming.forEach(m => {
+    m.id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    m.createdAt = m.createdAt || batchTime;
+    if (!m.generatedBy) m.generatedBy = 'claude';
+    items.push(m);
+  });
+  writeMoodboard(req.session.orgSlug, items);
+  res.json(readMoodboard(req.session.orgSlug));
+});
+
+app.delete('/api/moodboard/:id', (req, res) => {
+  let items = readMoodboard(req.session.orgSlug);
+  items = items.filter(m => m.id !== req.params.id);
+  writeMoodboard(req.session.orgSlug, items);
+  res.json({ ok: true });
+});
+
+app.delete('/api/moodboard', (req, res) => {
+  writeMoodboard(req.session.orgSlug, []);
+  res.json({ ok: true });
+});
+
+// --- Campaign Briefs API (scoped to the logged-in org) ---
+app.get('/api/campaign-briefs', (req, res) => res.json(readCampaignBriefs(req.session.orgSlug)));
+
+app.post('/api/campaign-briefs', (req, res) => {
+  const briefs = readCampaignBriefs(req.session.orgSlug);
+  const brief = req.body || {};
+  if (!brief.title) return res.status(400).json({ error: 'Campaign name is required.' });
+  brief.id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  brief.createdAt = new Date().toISOString();
+  briefs.push(brief);
+  writeCampaignBriefs(req.session.orgSlug, briefs);
+  res.json(brief);
+});
+
+app.delete('/api/campaign-briefs/:id', (req, res) => {
+  let briefs = readCampaignBriefs(req.session.orgSlug);
+  briefs = briefs.filter(b => b.id !== req.params.id);
+  writeCampaignBriefs(req.session.orgSlug, briefs);
+  res.json({ ok: true });
+});
+
+// --- Canva integration (Design CRUD + Brand Template autofill only — no Magic Media/Magic
+// Design/generative anything). Wonderland stays the copywriting layer; this hands structured
+// fields to a pre-built Canva Brand Template and lets a designer take it from there.
+//
+// Endpoint paths, param names, and scopes below follow Canva's public Connect API docs
+// (canva.dev/docs/connect) as of when this was written. Canva's API is still evolving —
+// verify each one against the current docs once real OAuth credentials exist; nothing here
+// has been tested against the live API.
+//
+// Requires CANVA_CLIENT_ID and CANVA_CLIENT_SECRET (Canva Developer Portal — needs a Canva
+// Enterprise/Teams plan for Brand Template + Autofill API access) as env vars. One OAuth2 app
+// for the whole instance; each org connects (or doesn't) its own Canva account/token.
+const CANVA_CLIENT_ID = process.env.CANVA_CLIENT_ID;
+const CANVA_CLIENT_SECRET = process.env.CANVA_CLIENT_SECRET;
+const CANVA_SCOPES = 'asset:read asset:write brandtemplate:meta:read brandtemplate:content:read design:content:read design:content:write design:meta:read profile:read';
+
+function canvaRedirectUri(req) {
+  return `${req.protocol}://${req.get('host')}${BASE_PATH_SLASH}api/canva/oauth/callback`;
+}
+function base64url(buf) { return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+
+function orgCanvaTokenFile(slug) { return path.join(orgDataDir(slug), 'canva-token.json'); }
+function loadCanvaToken(slug) { return readJson(orgCanvaTokenFile(slug), null); }
+function saveCanvaToken(slug, token) { writeJson(orgCanvaTokenFile(slug), token); }
+function clearCanvaToken(slug) { try { fs.unlinkSync(orgCanvaTokenFile(slug)); } catch (e) {} }
+
+// Refreshes automatically when the stored token is within 60s of expiry. Returns null if never
+// connected, so callers can surface "connect your Canva account first" instead of a raw API error.
+async function getCanvaAccessToken(org) {
+  const token = loadCanvaToken(org.slug);
+  if (!token) return null;
+  if (token.expiresAt - Date.now() > 60 * 1000) return token.accessToken;
+
+  const r = await fetch('https://api.canva.com/rest/v1/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token', refresh_token: token.refreshToken,
+      client_id: CANVA_CLIENT_ID, client_secret: CANVA_CLIENT_SECRET
+    })
+  });
+  if (!r.ok) { clearCanvaToken(org.slug); return null; }
+  const data = await r.json();
+  const refreshed = {
+    accessToken: data.access_token, refreshToken: data.refresh_token || token.refreshToken,
+    expiresAt: Date.now() + (data.expires_in || 3600) * 1000, connectedName: token.connectedName
+  };
+  saveCanvaToken(org.slug, refreshed);
+  return refreshed.accessToken;
+}
+
+app.get('/api/canva/status', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!CANVA_CLIENT_ID || !CANVA_CLIENT_SECRET) return res.json({ configured: false, connected: false });
+  const token = loadCanvaToken(org.slug);
+  res.json({ configured: true, connected: !!token, connectedName: token ? token.connectedName : null, templates: org.canvaTemplates || {} });
+});
+
+app.get('/api/canva/connect', (req, res) => {
+  if (!CANVA_CLIENT_ID || !CANVA_CLIENT_SECRET) {
+    return res.status(400).send('Canva is not configured yet — CANVA_CLIENT_ID / CANVA_CLIENT_SECRET are not set on the server.');
+  }
+  const verifier = base64url(crypto.randomBytes(64));
+  const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
+  req.session.canvaVerifier = verifier;
+  req.session.canvaOrgSlug = req.session.orgSlug; // callback runs before requireActiveClient re-checks, so pin it explicitly
+
+  const params = new URLSearchParams({
+    code_challenge: challenge, code_challenge_method: 'S256', response_type: 'code',
+    client_id: CANVA_CLIENT_ID, redirect_uri: canvaRedirectUri(req), scope: CANVA_SCOPES
+  });
+  res.redirect('https://www.canva.com/api/oauth/authorize?' + params.toString());
+});
+
+app.get('/api/canva/oauth/callback', async (req, res) => {
+  const { code } = req.query;
+  const verifier = req.session.canvaVerifier;
+  const slug = req.session.canvaOrgSlug;
+  if (!code || !verifier || !slug) return res.status(400).send('Canva connection failed — missing code/verifier. Try connecting again.');
+
+  try {
+    const r = await fetch('https://api.canva.com/rest/v1/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code', code, code_verifier: verifier,
+        client_id: CANVA_CLIENT_ID, client_secret: CANVA_CLIENT_SECRET, redirect_uri: canvaRedirectUri(req)
+      })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+
+    let connectedName = null;
+    try {
+      const profileRes = await fetch('https://api.canva.com/rest/v1/users/me/profile', { headers: { Authorization: 'Bearer ' + data.access_token } });
+      if (profileRes.ok) connectedName = (await profileRes.json()).display_name || null;
+    } catch (e) {}
+
+    saveCanvaToken(slug, {
+      accessToken: data.access_token, refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in || 3600) * 1000, connectedName
+    });
+    res.redirect(BASE_PATH_SLASH + '#canva');
+  } catch (e) {
+    res.status(400).send('Canva connection failed: ' + e.message);
+  }
+});
+
+app.post('/api/canva/disconnect', (req, res) => {
+  clearCanvaToken(req.session.orgSlug);
+  res.json({ ok: true });
+});
+
+app.get('/api/canva/brand-templates', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const accessToken = await getCanvaAccessToken(org);
+  if (!accessToken) return res.status(400).json({ error: 'Canva not connected yet.' });
+  try {
+    const r = await fetch('https://api.canva.com/rest/v1/brand-templates', { headers: { Authorization: 'Bearer ' + accessToken } });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    res.json({ ok: true, templates: (data.items || []).map(t => ({ id: t.id, title: t.title, thumbnailUrl: t.thumbnail && t.thumbnail.url })) });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/canva/template-mapping', (req, res) => {
+  const orgs = loadOrgs();
+  const org = orgs.find(o => o.slug === req.session.orgSlug);
+  if (!org) return res.status(404).json({ error: 'Organization not found' });
+  org.canvaTemplates = req.body && req.body.templates || {};
+  saveOrgs(orgs);
+  res.json({ ok: true, templates: org.canvaTemplates });
+});
+
+// Uploads one image (base64, no data: prefix) to Canva as an asset. Canva's upload endpoint takes
+// raw binary with a JSON metadata header, not a JSON body — different shape from the rest of this API.
+async function uploadCanvaAsset(accessToken, name, mimeType, base64Data) {
+  const r = await fetch('https://api.canva.com/rest/v1/asset-uploads', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + accessToken,
+      'Content-Type': 'application/octet-stream',
+      'Asset-Upload-Metadata': JSON.stringify({ name })
+    },
+    body: Buffer.from(base64Data, 'base64')
+  });
+  if (!r.ok) throw new Error('Canva asset upload failed: ' + await r.text());
+  const { job } = await r.json();
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const jr = await fetch(`https://api.canva.com/rest/v1/asset-uploads/${job.id}`, { headers: { Authorization: 'Bearer ' + accessToken } });
+    const jdata = (await jr.json()).job;
+    if (jdata.status === 'success') return jdata.asset.id;
+    if (jdata.status === 'failed') throw new Error('Canva asset upload job failed.');
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  throw new Error('Canva asset upload timed out.');
+}
+
+// Runs a Brand Template autofill job to completion and returns the resulting design's edit link.
+async function runCanvaAutofill(accessToken, brandTemplateId, title, data) {
+  const r = await fetch('https://api.canva.com/rest/v1/autofills', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ brand_template_id: brandTemplateId, title, data })
+  });
+  if (!r.ok) throw new Error('Canva autofill failed: ' + await r.text());
+  const { job } = await r.json();
+
+  let design;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const jr = await fetch(`https://api.canva.com/rest/v1/autofills/${job.id}`, { headers: { Authorization: 'Bearer ' + accessToken } });
+    const jdata = (await jr.json()).job;
+    if (jdata.status === 'success') { design = jdata.result.design; break; }
+    if (jdata.status === 'failed') throw new Error('Canva autofill job failed.');
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  if (!design) throw new Error('Canva autofill timed out.');
+
+  const dr = await fetch(`https://api.canva.com/rest/v1/designs/${design.id}`, { headers: { Authorization: 'Bearer ' + accessToken } });
+  const ddata = dr.ok ? (await dr.json()).design : null;
+  return {
+    designId: design.id,
+    editUrl: (ddata && ddata.urls && ddata.urls.edit_url) || design.url || null,
+    thumbnailUrl: (ddata && ddata.thumbnail && ddata.thumbnail.url) || null
+  };
+}
+
+// Sends one saved Campaign Brief's visual copywriting + first reference image to a Canva Brand
+// Template via autofill, and stores the resulting design link back on the brief.
+app.post('/api/canva/autofill/brief/:id', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const accessToken = await getCanvaAccessToken(org);
+  if (!accessToken) return res.status(400).json({ error: 'Canva not connected yet.' });
+
+  const templateId = (org.canvaTemplates || {})[req.body && req.body.templateKey || 'briefCover'];
+  if (!templateId) return res.status(400).json({ error: 'No Canva template mapped for this format yet — set one on the Canva page.' });
+
+  const briefs = readCampaignBriefs(org.slug);
+  const brief = briefs.find(b => b.id === req.params.id);
+  if (!brief) return res.status(404).json({ error: 'Brief not found' });
+  const vc = brief.visualCopywriting;
+  if (!vc) return res.status(400).json({ error: 'Generate and select a visual copywriting option first.' });
+
+  try {
+    const data = {
+      Headline: { type: 'text', text: vc.headline || '' },
+      Subheadline: { type: 'text', text: vc.sub || '' }
+    };
+    const firstImage = (brief.referenceImages || [])[0];
+    if (firstImage && firstImage.kind === 'upload') {
+      const assetId = await uploadCanvaAsset(accessToken, firstImage.name, firstImage.mimeType, firstImage.data);
+      data.Photo = { type: 'image', asset_id: assetId };
+    }
+    const result = await runCanvaAutofill(accessToken, templateId, brief.title, data);
+    brief.canva = result;
+    writeCampaignBriefs(org.slug, briefs);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 // --- Master config API (scoped to the logged-in org) ---
@@ -1185,14 +1448,44 @@ app.post('/api/generate-plan', async (req, res) => {
   const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-gemini-key.js, then try again.' });
 
-  // Post count is governed by the same guardrail as the Chat AI Agent tab (Chat AI Agent > Guardrails)
-  // rather than a separate field here — one shared limit instead of two settings that could drift.
-  // Gemini decides the actual dates itself from the focus text (e.g. "tanggal kembar
-  // Agustus-September" should land on non-consecutive dates spanning two months, not just
-  // "the next N days from today").
+  // maxPostsPerProposal (Chat AI Agent > Guardrails) is a hard ceiling shared with the other
+  // generation surfaces; totalCount from the question box is a request within that ceiling, not
+  // a replacement for it. Gemini decides the actual dates itself from the context text (e.g.
+  // "tanggal kembar Agustus-September" should land on non-consecutive dates spanning two months,
+  // not just "the next N days from today").
   const guardrails = loadGuardrails(org.slug);
   const maxPosts = guardrails.maxPostsPerProposal;
-  const focus = (req.body && req.body.focus || '').trim();
+  const body = req.body || {};
+  const requestedTotal = Number.isFinite(parseInt(body.totalCount, 10)) && parseInt(body.totalCount, 10) > 0 ? parseInt(body.totalCount, 10) : null;
+  const feedCount = Number.isFinite(parseInt(body.feedCount, 10)) && parseInt(body.feedCount, 10) >= 0 ? parseInt(body.feedCount, 10) : null;
+  const storyCount = Number.isFinite(parseInt(body.storyCount, 10)) && parseInt(body.storyCount, 10) >= 0 ? parseInt(body.storyCount, 10) : null;
+  const totalCount = Math.min(requestedTotal || maxPosts, maxPosts);
+  const clamped = !!requestedTotal && requestedTotal > maxPosts;
+
+  const goal = (body.goal || '').trim();
+  const products = (body.products || '').trim();
+  const occasion = (body.occasion || '').trim();
+  const specialRequest = (body.specialRequest || '').trim();
+  const contextLines = [];
+  if (goal) contextLines.push(`Goal of this content plan: ${goal}`);
+  if (products) contextLines.push(`Products to be highlighted: ${products}`);
+  if (occasion) contextLines.push(`Special occasion: ${occasion}`);
+  if (specialRequest) contextLines.push(`Special request: ${specialRequest}`);
+  const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+  const focus = contextLines.join('\n') + buildAttachmentText(attachments);
+  const imageParts = attachments.filter(a => a && a.kind === 'image' && a.mimeType && a.content).map(a => ({ inlineData: { mimeType: a.mimeType, data: a.content } }));
+
+  // The two modes need genuinely different instructions, not just a tone tweak: "before photo
+  // shoot" is a shot brief for content that doesn't exist yet; "existing database" must NOT
+  // invent new shoot direction and instead point at what's already in Directory A.
+  const mode = body.mode === 'existingDatabase' ? 'existingDatabase' : 'beforeShoot';
+  const directoryASummary = buildDirectoryASummary(org.slug);
+  const modeBlock = mode === 'existingDatabase'
+    ? `EXISTING-ASSET MODE: These posts must be built around content that has already been captured — do NOT invent new photo/video shoot direction. For every post, set "directoryAKeyword" to a short keyword/phrase (a folder or file name fragment) that would match the right existing asset below, and write the "photo" field describing which existing shot/style to reuse, not a new one to go capture.
+
+EXISTING ASSET LIBRARY (synced from the client's Google Drive — Directory A):
+${directoryASummary || "Not synced yet — no existing asset library data is available. Say so plainly in a post's strategicRationale rather than inventing folder names, and fall back to Master Config's brand/product descriptions only."}`
+    : `SHOOT MODE: These posts have NOT been photographed yet — this plan doubles as a shoot brief. For every post, the "photo" field must be concrete, actionable direction for the photographer/videographer: subject, framing/angle, lighting, props, location, and any reference points (competitor posts, mood boards, style) to shoot toward. Describe what needs to be captured, not a photo that already exists.`;
 
   const readConfig = (id) => { try { return fs.readFileSync(resolveConfigPath(org, id), 'utf8'); } catch (e) { return ''; } };
   const assistantInstructions = org.useSharedConfig
@@ -1231,10 +1524,14 @@ ${ownPlanText}
 
 ---
 
-TASK: Today is ${today}. Generate a content plan of no more than ${maxPosts} post(s) total. ${focus ? `Focus / instructions: ${focus}.` : 'Use a balanced mix per the standing rules — no single focus requested.'}
+${modeBlock}
 
-Read the focus text carefully and figure out the actual dates yourself:
-- If it asks for a normal upcoming window (e.g. "next week", or nothing specific), plan forward from today using the Sat/Mon/Wed/Thu-style alternating feed/story cadence described in your instructions, adapted to fit within the ${maxPosts}-post cap.
+---
+
+TASK: Today is ${today}. Generate a content plan of exactly ${totalCount} post(s) total${feedCount !== null || storyCount !== null ? ` (aim for ${feedCount || 0} feed and ${storyCount || 0} story — adjust slightly if it doesn't add up to ${totalCount}, but stay close)` : ''}. ${focus ? `Context provided by the user:\n${focus}` : 'Use a balanced mix per the standing rules — no specific context given.'}
+
+Read the context above carefully and figure out the actual dates yourself:
+- If it asks for a normal upcoming window (e.g. "next week", or nothing specific), plan forward from today using the Sat/Mon/Wed/Thu-style alternating feed/story cadence described in your instructions, adapted to fit within the ${totalCount}-post cap.
 - If it names or implies specific, non-standard dates — including things like "tanggal kembar" (twin dates: 8/8, 9/9, 10/10, 11/11, 12/12, etc.), a specific holiday, a specific date range, or an explicit list of dates — work out which real calendar date(s) that refers to yourself (relative to today, ${today}) and schedule posts ONLY on those date(s), even if they're non-consecutive or span multiple months. Do not pad the plan with extra unrelated dates just to fill out the cap. Give each such date its own reasoning for format/tone rather than forcing the regular weekly cadence onto it, since these dates were chosen for a specific reason, not as a regular week.
 
 Output ONLY a raw JSON array of post objects matching the Output Contract schema (Section 6 of your instructions). No markdown formatting, no code fences, no commentary — the response body must be valid JSON and nothing else.`;
@@ -1244,7 +1541,7 @@ Output ONLY a raw JSON array of post objects matching the Output Contract schema
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{ parts: [{ text: prompt }, ...imageParts] }],
         generationConfig: { responseMimeType: 'application/json' }
       })
     });
@@ -1278,7 +1575,7 @@ Output ONLY a raw JSON array of post objects matching the Output Contract schema
       throw new Error('Gemini returned non-JSON output — try again, or narrow the focus text.');
     }
     if (!Array.isArray(posts)) throw new Error('Gemini did not return a posts array.');
-    if (posts.length > maxPosts) posts = posts.slice(0, maxPosts); // hard backstop behind the prompt-level cap
+    if (posts.length > totalCount) posts = posts.slice(0, totalCount); // hard backstop behind the prompt-level cap
 
     const usage = data.usageMetadata || {};
     posts.forEach(p => { p.generatedBy = 'gemini'; });
@@ -1297,7 +1594,86 @@ Output ONLY a raw JSON array of post objects matching the Output Contract schema
       }
     });
 
-    res.json({ ok: true, posts, tokenUsage: { total: usage.totalTokenCount || 0, prompt: usage.promptTokenCount || 0, output: usage.candidatesTokenCount || 0 }, model: data.modelVersion || GEMINI_MODEL });
+    res.json({
+      ok: true, posts, tokenUsage: { total: usage.totalTokenCount || 0, prompt: usage.promptTokenCount || 0, output: usage.candidatesTokenCount || 0 },
+      model: data.modelVersion || GEMINI_MODEL,
+      note: clamped ? `Requested ${requestedTotal} posts, clamped to the org's guardrail max of ${maxPosts}.` : null
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+// Writes the "Visual Copywriting" section of a Campaign Brief — headline/sub/caption, a few
+// distinct options to choose from — grounded in the brief's own fields (background, audience,
+// objective, timeline, channels, terms) rather than a dated content-plan cadence. Reference
+// images the user attached are sent along as visual context, same inlineData shape Creative
+// Chat uses for image attachments.
+app.post('/api/generate-brief', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!org) return res.status(404).json({ ok: false, error: 'Organization not found' });
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-model-key.js, then try again.' });
+
+  const body = req.body || {};
+  const title = (body.title || '').trim();
+  const background = (body.background || '').trim();
+  const audience = (body.audience || '').trim();
+  const objective = (body.objective || '').trim();
+  const timeline = (body.timeline || '').trim();
+  const channels = (body.channels || '').trim();
+  const terms = (body.terms || '').trim();
+  const refLinks = (body.refLinks || '').trim();
+  const draftHeadline = (body.draftHeadline || '').trim();
+  const draftSub = (body.draftSub || '').trim();
+  const draftCaption = (body.draftCaption || '').trim();
+  const referenceImages = Array.isArray(body.referenceImages) ? body.referenceImages : [];
+
+  if (!draftHeadline && !draftSub && !draftCaption) {
+    return res.status(400).json({ ok: false, error: 'Write a draft headline, sub-headline, or caption first — rephrasing needs something to work from.' });
+  }
+
+  const readConfig = (id) => { try { return fs.readFileSync(resolveConfigPath(org, id), 'utf8'); } catch (e) { return ''; } };
+  const assistantInstructions = org.useSharedConfig
+    ? (() => { try { return fs.readFileSync(BURANCHI_CONFIG_FILES['compass-assistant'].path, 'utf8'); } catch (e) { return ''; } })()
+    : readConfig('compass-assistant');
+
+  const briefText = `Campaign name: ${title || '(untitled)'}
+Campaign Background: ${background || '(not given)'}
+Target Audience: ${audience || '(not given)'}
+Campaign Objective: ${objective || '(not given)'}
+Timeline Campaign: ${timeline || '(not given)'}
+Media Channels: ${channels || '(not given)'}
+Terms and Condition Campaign: ${terms || '(not given)'}
+References Content (existing posts, tone/format reference only, not to copy): ${refLinks || '(none given)'}
+
+--- DRAFT WORDING TO REPHRASE (this is the actual source of truth for content) ---
+Draft headline: ${draftHeadline || '(none given)'}
+Draft sub-headline: ${draftSub || '(none given)'}
+Draft caption: ${draftCaption || '(none given)'}`;
+
+  const systemInstruction = `${assistantInstructions}
+
+---
+
+CAMPAIGN BRIEF MODE — REPHRASE ONLY. The user already wrote their own draft headline/sub-headline/caption below. Your job is ONLY to reword it, not to write new copy from scratch. Do not invent new facts, offers, dates, products, or angles that aren't already in the draft or the brief context above — every option must carry the exact same message, offer, and details as the draft, just phrased differently (tone, sentence structure, word choice). If a draft field was left blank, leave it blank in every option too rather than inventing content for it.
+
+Give exactly 3 rephrased variations. Use the brief context (audience, objective, channel) only to judge tone/register — never to add content the draft didn't have. If reference images are attached, they're mood/style context only, not something to describe.
+
+Respond with ONLY a raw JSON object matching exactly:
+{"strategySummary": "1-2 sentence note on what changed between the draft and these options (tone/phrasing only), in the user's language", "options": [{"headline": "...", "sub": "...", "caption": "..."}, {"headline": "...", "sub": "...", "caption": "..."}, {"headline": "...", "sub": "...", "caption": "..."}]}`;
+
+  const imageParts = referenceImages.filter(a => a && a.mimeType && a.data).map(a => ({ inlineData: { mimeType: a.mimeType, data: a.data } }));
+  const contents = [{ role: 'user', parts: [{ text: briefText }, ...imageParts] }];
+
+  try {
+    const result = await callGeminiJSON(apiKey, systemInstruction, contents);
+    const options = Array.isArray(result.parsed.options) ? result.parsed.options : [];
+    logGeneration(org.slug, {
+      timestamp: new Date().toISOString(), agent: 'gemini', model: result.model,
+      requestText: `Campaign brief: ${title || '(untitled)'}`, postCount: 0, tokenUsage: result.tokenUsage
+    });
+    res.json({ ok: true, strategySummary: result.parsed.strategySummary || '', options, tokenUsage: result.tokenUsage, model: result.model });
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message });
   }
@@ -1436,6 +1812,118 @@ async function callGeminiJSON(apiKey, systemInstruction, contentsOrText) {
     }
   }
   throw new Error('Gemini returned non-JSON output for the agent step after ' + JSON_RETRY_ATTEMPTS + ' tries — try again.');
+}
+
+// --- Multi-provider Creative Chat ---
+// Gemini keeps its full auto-router + Market->Brand->Judge pipeline below (it's a bespoke
+// structured-JSON pipeline, not something worth re-deriving per provider). Claude/GPT/Kimi are a
+// simpler direct conversational call sharing the same brand/market context, so the user can compare
+// tone and token cost across providers without the auto-analysis step, which stays Gemini-only.
+function orgProviderApiKey(org, provider) {
+  if (provider === 'claude') return org.claudeApiKey || process.env.ANTHROPIC_API_KEY;
+  if (provider === 'gpt') return org.openaiApiKey || process.env.OPENAI_API_KEY;
+  if (provider === 'kimi') return org.kimiApiKey || process.env.KIMI_API_KEY;
+  return org.geminiApiKey || process.env.GEMINI_API_KEY;
+}
+const PROVIDER_KEY_SETUP_HINT = {
+  gemini: 'node scripts/set-model-key.js <org-slug> gemini <key> (or scripts/set-gemini-key.js)',
+  claude: 'node scripts/set-model-key.js <org-slug> claude <key>',
+  gpt: 'node scripts/set-model-key.js <org-slug> gpt <key>',
+  kimi: 'node scripts/set-model-key.js <org-slug> kimi <key>'
+};
+
+// Text attachments get inlined into the prompt text (same spirit as the .md paste flow elsewhere
+// in the app); image attachments are handled separately per-provider since each API wants images
+// in its own message-content shape.
+function buildAttachmentText(attachments) {
+  const textAttachments = (attachments || []).filter(a => a.kind === 'text');
+  if (!textAttachments.length) return '';
+  return '\n\n' + textAttachments.map(a => `--- ATTACHED FILE: ${a.name} ---\n${a.content}`).join('\n\n');
+}
+
+// Turns a stored conversation turn (which for 'model' turns is a JSON blob — {type:'chat',...} or
+// {type:'intelligence-result',...} — not plain text) into plain readable text, so history stays
+// coherent for a plain chat model even after switching providers mid-conversation.
+function extractTurnText(turn) {
+  const raw = (turn.parts && turn.parts[0] && turn.parts[0].text) || '';
+  if (turn.role === 'user') return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.type === 'intelligence-result') return (parsed.judge && parsed.judge.strategySummary) || '[ran a full content-plan analysis]';
+    return parsed.message || '';
+  } catch (e) {
+    return raw;
+  }
+}
+
+function buildSimpleChatSystemInstruction(assistantInstructions, recsText, competitorSampleText, ownPlanText, today) {
+  return `${assistantInstructions}
+
+---
+
+LIVE COMPETITOR RECOMMENDATIONS (computed from the current analytics data):
+${recsText}
+
+---
+
+REAL COMPETITOR POST SAMPLES (actual scraped posts, top performers per category):
+${competitorSampleText}
+
+---
+
+BURANCHI'S OWN CURRENT PLAN (already-scheduled posts — do not repeat these dates, headlines, or near-identical angles):
+${ownPlanText}
+
+---
+
+CREATIVE CHAT MODE. Today is ${today}. Chat naturally with the user about Buranchi's content strategy, using the context above. The user may attach images or text files — read and use them. You are a text model — you cannot generate, attach, or send actual new image files yourself, only describe or discuss what's given to you. Reply in the user's language, plainly — no markdown code fences, no JSON, just your message as normal chat text.`;
+}
+
+async function callClaudeChat(apiKey, systemInstruction, history, userMessage, attachments) {
+  const imageBlocks = (attachments || []).filter(a => a.kind === 'image').map(a => ({
+    type: 'image', source: { type: 'base64', media_type: a.mimeType, data: a.content }
+  }));
+  const messages = history.map(turn => ({ role: turn.role === 'model' ? 'assistant' : 'user', content: extractTurnText(turn) }))
+    .concat([{ role: 'user', content: imageBlocks.length ? [...imageBlocks, { type: 'text', text: userMessage }] : userMessage }]);
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 2048, system: systemInstruction, messages })
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`Claude request failed (${r.status}): ${text.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  const message = (data.content || []).map(b => b.text || '').join('');
+  const usage = data.usage || {};
+  const prompt = usage.input_tokens || 0, output = usage.output_tokens || 0;
+  return { message, tokenUsage: { prompt, output, total: prompt + output }, model: data.model || 'claude' };
+}
+
+// Shared by GPT (OpenAI) and Kimi (Moonshot AI) — both speak the same Chat Completions shape.
+async function callOpenAICompatibleChat(baseUrl, apiKey, model, systemInstruction, history, userMessage, attachments) {
+  const imageParts = (attachments || []).filter(a => a.kind === 'image').map(a => ({
+    type: 'image_url', image_url: { url: `data:${a.mimeType};base64,${a.content}` }
+  }));
+  const messages = [{ role: 'system', content: systemInstruction }]
+    .concat(history.map(turn => ({ role: turn.role === 'model' ? 'assistant' : 'user', content: extractTurnText(turn) })))
+    .concat([{ role: 'user', content: imageParts.length ? [...imageParts, { type: 'text', text: userMessage }] : userMessage }]);
+
+  const r = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages })
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`${model} request failed (${r.status}): ${text.slice(0, 300)}`);
+  }
+  const data = await r.json();
+  const message = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+  const usage = data.usage || {};
+  return { message, tokenUsage: { prompt: usage.prompt_tokens || 0, output: usage.completion_tokens || 0, total: usage.total_tokens || 0 }, model: data.model || model };
 }
 
 const MARKET_AGENT_PROMPT = `You are the Market & Visual Intelligence Director for a content planning system. Your job is ONLY to analyze current market/competitor evidence and this brand's historical content, and surface opportunities, saturation, gaps, and visual angles — you do NOT decide what's on-brand, that's someone else's job.
@@ -1654,14 +2142,20 @@ Respond with ONLY a raw JSON object, no markdown/code fences, matching exactly:
 {"needsFullAnalysis": true or false, "message": "shown as-is in the chat", "posts": null OR an array of post objects matching the Output Contract schema (Section 6 of your instructions)}`;
 }
 
+const CHAT_PROVIDERS = ['gemini', 'claude', 'gpt', 'kimi'];
+
 app.post('/api/creative-chat/conversations/:id/message', async (req, res) => {
   const org = findOrgBySlug(req.session.orgSlug);
   if (!org) return res.status(404).json({ ok: false, error: 'Organization not found' });
-  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-gemini-key.js, then try again.' });
+
+  const provider = CHAT_PROVIDERS.includes(req.body && req.body.provider) ? req.body.provider : 'gemini';
+  const apiKey = orgProviderApiKey(org, provider);
+  if (!apiKey) return res.status(400).json({ ok: false, error: `No API key configured for ${provider}. Add one via: ${PROVIDER_KEY_SETUP_HINT[provider]}` });
 
   const userMessage = (req.body && req.body.message || '').trim();
-  if (!userMessage) return res.status(400).json({ ok: false, error: 'Message is required.' });
+  const attachments = Array.isArray(req.body && req.body.attachments) ? req.body.attachments : [];
+  if (!userMessage && !attachments.length) return res.status(400).json({ ok: false, error: 'Message is required.' });
+  const userMessageForModel = userMessage + buildAttachmentText(attachments);
 
   const list = loadCreativeChatConversations(org.slug);
   const convo = list.find(c => c.id === req.params.id);
@@ -1678,10 +2172,42 @@ app.post('/api/creative-chat/conversations/:id/message', async (req, res) => {
   const competitorSampleText = buildCompetitorSample(analyticsData ? analyticsData.data : null);
   const ownPlanText = buildOwnPlanSample(org.slug);
   const today = new Date().toISOString().slice(0, 10);
-  const systemInstruction = buildCreativeChatRouterInstruction(assistantInstructions, recsText, competitorSampleText, ownPlanText, today, guardrails);
-
   const windowedHistory = convo.contents.slice(-CHAT_HISTORY_LIMIT);
-  const contents = windowedHistory.concat([{ role: 'user', parts: [{ text: userMessage }] }]);
+
+  if (provider !== 'gemini') {
+    try {
+      const simpleSystemInstruction = buildSimpleChatSystemInstruction(assistantInstructions, recsText, competitorSampleText, ownPlanText, today);
+      const call = provider === 'claude'
+        ? callClaudeChat(apiKey, simpleSystemInstruction, windowedHistory, userMessageForModel, attachments)
+        : callOpenAICompatibleChat(
+            provider === 'gpt' ? 'https://api.openai.com/v1' : 'https://api.moonshot.ai/v1',
+            apiKey, provider === 'gpt' ? 'gpt-5' : 'moonshot-v1-32k-vision-preview',
+            simpleSystemInstruction, windowedHistory, userMessageForModel, attachments
+          );
+      const result = await call;
+
+      convo.contents.push({ role: 'user', parts: [{ text: userMessage || '(attachment only)' }] });
+      if (convo.contents.length === 1) convo.title = chatConvoTitle(userMessage || attachments.map(a => a.name).join(', '));
+      convo.contents.push({ role: 'model', parts: [{ text: JSON.stringify({ type: 'chat', message: result.message, posts: null, tokenUsage: result.tokenUsage, model: result.model }) }] });
+      convo.updatedAt = new Date().toISOString();
+      saveCreativeChatConversations(org.slug, list);
+
+      const agentKey = provider + '-chat';
+      logGeneration(org.slug, {
+        timestamp: convo.updatedAt, agent: agentKey, model: result.model,
+        requestText: userMessage, postCount: 0,
+        tokenUsage: { prompt: result.tokenUsage.prompt, thoughts: 0, output: result.tokenUsage.output, total: result.tokenUsage.total }
+      });
+
+      return res.json({ ok: true, needsFullAnalysis: false, type: 'chat', message: result.message, posts: null, turnIndex: convo.contents.length - 1, tokenUsage: result.tokenUsage, model: result.model });
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: e.message });
+    }
+  }
+
+  const systemInstruction = buildCreativeChatRouterInstruction(assistantInstructions, recsText, competitorSampleText, ownPlanText, today, guardrails);
+  const imageParts = attachments.filter(a => a.kind === 'image').map(a => ({ inlineData: { mimeType: a.mimeType, data: a.content } }));
+  const contents = windowedHistory.concat([{ role: 'user', parts: [{ text: userMessageForModel }, ...imageParts] }]);
 
   try {
     const router = await callGeminiJSON(apiKey, systemInstruction, contents);
@@ -1689,8 +2215,8 @@ app.post('/api/creative-chat/conversations/:id/message', async (req, res) => {
     let posts = Array.isArray(router.parsed.posts) ? router.parsed.posts : null;
     const needsFullAnalysis = !!router.parsed.needsFullAnalysis;
 
-    convo.contents.push({ role: 'user', parts: [{ text: userMessage }] });
-    if (convo.contents.length === 1) convo.title = chatConvoTitle(userMessage);
+    convo.contents.push({ role: 'user', parts: [{ text: userMessage || '(attachment only)' }] });
+    if (convo.contents.length === 1) convo.title = chatConvoTitle(userMessage || attachments.map(a => a.name).join(', '));
 
     if (!needsFullAnalysis) {
       if (posts && posts.length > guardrails.maxPostsPerProposal) {

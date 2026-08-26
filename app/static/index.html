@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wonderland</title>
 <link rel="stylesheet" href="style.css">
+<script>
+(function(){
+  var saved = localStorage.getItem('compass-theme');
+  var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
 </head>
 <body>
@@ -21,13 +28,6 @@
         </div>
       </div>
 
-      <div class="nav-group" data-group="agency" id="nav-group-agency" style="display:none;">
-        <div class="nav-group-label"><span>Agency</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
-        <div class="nav-group-body">
-          <a href="#agencyoverview" data-nav="agencyoverview" data-page="agencyoverview">Agency Overview</a>
-        </div>
-      </div>
-
       <div class="nav-group" data-group="analytics">
         <div class="nav-group-label"><span>Analytics</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
         <div class="nav-group-body">
@@ -35,17 +35,16 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
             Competitor Dashboard
           </a>
-          <a href="#competitors" data-nav="competitors" data-page="competitors">Competitors</a>
         </div>
       </div>
 
       <div class="nav-group" data-group="contentplan">
-        <div class="nav-group-label"><span>Generate Plan by Juan</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="nav-group-label"><span>Ideation</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
         <div class="nav-group-body">
           <a href="#generate" class="active" data-nav="generate" data-page="generate">Content Plan</a>
           <a href="#moodboard" data-nav="moodboard" data-page="moodboard">Moodboard</a>
           <a href="#campaignbrief" data-nav="campaignbrief" data-page="campaignbrief">Campaign Brief</a>
-          <a href="#ideation" data-nav="ideation" data-page="ideation">Ideation</a>
+          <a href="#ideation" data-nav="ideation" data-page="ideation">Creative Ideation</a>
         </div>
       </div>
 
@@ -54,9 +53,8 @@
         <div class="nav-group-body">
           <a href="#creativechat" data-nav="creativechat" data-page="creativechat">Creative Chat</a>
           <a href="#directorya" data-nav="directorya" data-page="directorya">Directory A</a>
+          <a href="#canva" data-nav="canva" data-page="canva">Canva</a>
           <a href="#agentbehavior" data-nav="agentbehavior" data-page="agentbehavior">Agent Behavior &amp; Guardrails</a>
-          <a href="#calendar" data-nav="calendar" data-page="calendar">Calendar</a>
-          <a href="#previews" data-nav="previews" data-page="previews">Post previews</a>
           <a href="#history" data-nav="history" data-page="history">Usage history</a>
         </div>
       </div>
@@ -83,6 +81,10 @@
         <div class="title">Wonderland</div>
       </div>
       <div class="who">
+        <button class="icon-btn" id="btn-theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
         <button class="btn btn-sm btn-outline" id="btn-logout">Sign out</button>
         <div class="avatar" id="avatar">B</div>
       </div>
@@ -104,28 +106,6 @@
         </div>
       </div>
 
-      <div class="kpi-grid" id="content-plan-kpis">
-        <div class="kpi-card">
-          <div class="top-row"><div class="lab">Total posts</div><div class="kpi-icon" style="background:var(--accent-50); color:var(--accent);">◆</div></div>
-          <div class="val" id="kpi-total">0</div>
-          <div class="cap">this plan</div>
-        </div>
-        <div class="kpi-card">
-          <div class="top-row"><div class="lab">Feed</div><div class="kpi-icon" style="background:#FFF4CC; color:#8A6D00;">▦</div></div>
-          <div class="val" id="kpi-feed">0</div>
-          <div class="cap" id="kpi-feed-cap">of 0</div>
-        </div>
-        <div class="kpi-card">
-          <div class="top-row"><div class="lab">Story</div><div class="kpi-icon" style="background:#E4F0FF; color:#1C5EA6;">▮</div></div>
-          <div class="val" id="kpi-story">0</div>
-          <div class="cap" id="kpi-story-cap">of 0</div>
-        </div>
-        <div class="kpi-card">
-          <div class="top-row"><div class="lab">Event-arm share</div><div class="kpi-icon" style="background:var(--success-bg); color:var(--success);">●</div></div>
-          <div class="val" id="kpi-event">0%</div>
-          <div class="cap">target ~10%+</div>
-        </div>
-      </div>
 
       <section class="section page-view" id="dashboard" data-page="dashboard">
         <div class="section-head">
@@ -168,56 +148,6 @@
         </div>
       </section>
 
-      <section class="section page-view" id="agencyoverview" data-page="agencyoverview">
-        <div class="section-head">
-          <h2>Agency Overview</h2>
-          <p class="sub">Agregat lintas semua klien.</p>
-        </div>
-
-        <div class="kpi-grid" id="agency-kpis">
-          <div class="kpi-card">
-            <div class="top-row"><div class="lab">Total klien</div><div class="kpi-icon" style="background:var(--accent-50); color:var(--accent);">◆</div></div>
-            <div class="val" id="agy-kpi-clients">0</div>
-            <div class="cap">Klik tabel untuk drill-down</div>
-          </div>
-          <div class="kpi-card">
-            <div class="top-row"><div class="lab">Total post</div><div class="kpi-icon" style="background:#FFF4CC; color:#8A6D00;">▦</div></div>
-            <div class="val" id="agy-kpi-posts">0</div>
-            <div class="cap">Item lintas klien</div>
-          </div>
-          <div class="kpi-card">
-            <div class="top-row"><div class="lab">AI usage (30 hari)</div><div class="kpi-icon" style="background:#F3E8FF; color:#7C3AED;">✦</div></div>
-            <div class="val" id="agy-kpi-aiusage">0</div>
-            <div class="cap" id="agy-kpi-aiusage-cap">0 tokens</div>
-          </div>
-          <div class="kpi-card">
-            <div class="top-row"><div class="lab">Klien perlu perhatian</div><div class="kpi-icon" style="background:#FDECEC; color:#DC2626;">●</div></div>
-            <div class="val" id="agy-kpi-atrisk">0</div>
-            <div class="cap">Tanpa aktivitas 7 hari</div>
-          </div>
-        </div>
-
-        <div class="card" style="padding:0; margin-bottom:20px;">
-          <div class="table-wrap">
-            <table class="plan-table">
-              <thead><tr><th>Klien</th><th>Total post</th><th>Deadline terdekat (7 hari)</th><th>Status</th><th>AI usage (30 hari)</th></tr></thead>
-              <tbody id="agy-clients-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="grid-2">
-          <div class="card">
-            <div class="section-head"><h2 style="font-size:14px;">Deadline terdekat (7 hari)</h2></div>
-            <div id="agy-deadlines-list"></div>
-          </div>
-          <div class="card">
-            <div class="section-head"><h2 style="font-size:14px;">Activity feed</h2></div>
-            <div id="agy-activity-list"></div>
-          </div>
-        </div>
-      </section>
-
       <section class="section page-view" id="analytics" data-page="analytics">
         <div class="section-head">
           <h2>Competitor Instagram Analysis</h2>
@@ -226,6 +156,33 @@
         <div class="intel-card" style="margin-bottom:20px;">
           <b>Reading note</b>
           AGAIN | Coffee Sound hides its public like counts platform-wide — its engagement rate is computed from comments only and isn't directly comparable to the other three accounts.
+        </div>
+
+        <div class="card" id="comp-manage-card" style="margin-bottom:20px;">
+          <div class="section-head" style="margin-bottom:12px;">
+            <h2 style="font-size:14.5px;">Tracked competitors</h2>
+            <p class="sub">Add an Instagram or LinkedIn competitor to track. Only Instagram is scraped for analytics right now — LinkedIn entries are saved for reference until that pipeline exists.</p>
+          </div>
+          <div id="comp-rows" style="margin-bottom:14px;"></div>
+          <div class="analytics-filters" style="align-items:flex-end;">
+            <div class="field" style="max-width:220px; margin-bottom:0;">
+              <label class="f-label">Competitor name</label>
+              <input type="text" id="comp-new-name" placeholder="e.g. Kurasu Indonesia">
+            </div>
+            <div class="field" style="max-width:150px; margin-bottom:0;">
+              <label class="f-label">Platform</label>
+              <select id="comp-new-platform">
+                <option value="instagram">Instagram</option>
+                <option value="linkedin">LinkedIn</option>
+              </select>
+            </div>
+            <div class="field" style="max-width:300px; margin-bottom:0;">
+              <label class="f-label" id="comp-new-link-label">Instagram link or handle</label>
+              <input type="text" id="comp-new-link" placeholder="https://instagram.com/kurasuid or @kurasuid">
+            </div>
+            <button class="btn btn-accent btn-sm" id="btn-comp-add">+ Add competitor</button>
+          </div>
+          <span id="comp-add-status" class="rescrape-status"></span>
         </div>
 
         <div class="analytics-toolbar">
@@ -328,9 +285,85 @@
       <section class="section page-view" id="generate" data-page="generate">
         <div class="section-head">
           <h2>Generate a plan</h2>
-          <p class="sub">Chat with Claude, then paste the plan here.</p>
+          <p class="sub">Answer a few questions about this plan's context, then review headline/sub-headline/caption recommendations before adding them.</p>
         </div>
 
+        <div class="card" id="ai-generate-card">
+          <div class="section-head" style="margin-bottom:14px;">
+            <span class="agent-badge agent-gemini" style="margin-bottom:8px; display:inline-block;">GEMINI — GENERATE WITH AI</span>
+          </div>
+
+          <div class="field">
+            <label class="f-label">Source</label>
+            <div class="tab-row pill-toggle" id="gen-mode-toggle">
+              <button type="button" class="tab-btn active" id="gen-mode-shoot" data-mode="beforeShoot">📷 Before photo shoot</button>
+              <button type="button" class="tab-btn" id="gen-mode-db" data-mode="existingDatabase">🗄️ Using existing database</button>
+            </div>
+            <p class="sub" id="gen-mode-hint" style="margin-top:8px;">Nothing's been shot yet — each post's photo direction becomes a brief for the photographer/videographer, with references to shoot toward.</p>
+          </div>
+
+          <div class="field">
+            <label class="f-label">Total posts to generate</label>
+            <input type="number" id="gen-total-count" min="1" max="50" value="6">
+          </div>
+          <div style="display:flex; gap:14px;">
+            <div class="field" style="flex:1;">
+              <label class="f-label">Feed posts</label>
+              <input type="number" id="gen-feed-count" min="0" max="50" value="4">
+            </div>
+            <div class="field" style="flex:1;">
+              <label class="f-label">Story posts</label>
+              <input type="number" id="gen-story-count" min="0" max="50" value="2">
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="f-label">Goal of this content plan</label>
+            <textarea id="gen-goal" placeholder="e.g. Drive weekday lunch traffic and introduce the new pastry line" style="min-height:60px;"></textarea>
+          </div>
+          <div class="field">
+            <label class="f-label">Products to be highlighted</label>
+            <textarea id="gen-products" placeholder="e.g. New croissant line, pilates class bundle" style="min-height:60px;"></textarea>
+          </div>
+          <div class="field">
+            <label class="f-label">Special occasion</label>
+            <input type="text" id="gen-occasion" placeholder="e.g. Kemerdekaan RI, tanggal kembar 8/8">
+          </div>
+          <div class="field">
+            <label class="f-label">Special request</label>
+            <textarea id="gen-special-request" placeholder="Anything else Gemini should know" style="min-height:60px;"></textarea>
+          </div>
+
+          <div class="field">
+            <label class="f-label">Attach files</label>
+            <p class="sub" style="margin:0 0 8px;">Images, or text docs (.txt/.md/.csv/.json) — used as extra context before generating.</p>
+            <div id="gen-attachments" class="cc-attachments" style="padding:0; margin-top:0; margin-bottom:8px;"></div>
+            <input type="file" id="gen-file-input" multiple accept=".txt,.md,.markdown,.csv,.json,image/png,image/jpeg,image/webp,image/gif" style="display:none;">
+            <button class="btn btn-outline btn-sm" type="button" id="btn-gen-attach">+ Add file</button>
+          </div>
+
+          <button class="btn btn-accent" id="btn-ai-generate" style="width:100%; padding:11px; margin-top:6px;">Generate recommendations</button>
+          <span id="ai-generate-status" class="rescrape-status"></span>
+        </div>
+
+        <div id="ai-recs-wrap" style="display:none; margin-top:24px;">
+          <div class="section-head" style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+            <div>
+              <h2>Recommendations</h2>
+              <p class="sub">Headline, sub-headline, and caption for each post. Remove any you don't want, then add the rest to the plan.</p>
+            </div>
+            <div style="display:flex; gap:8px; flex-shrink:0;">
+              <button class="btn btn-outline btn-sm" id="btn-ai-discard">Discard</button>
+              <button class="btn btn-accent btn-sm" id="btn-ai-add-all">Add all to plan</button>
+            </div>
+          </div>
+          <div id="ai-recs-list"></div>
+        </div>
+
+        <div class="section-head" style="margin-top:26px;">
+          <h2 style="font-size:14.5px;">Or paste from a Claude chat session</h2>
+          <p class="sub">Prefer chatting with Claude directly? Paste the resulting plan here instead.</p>
+        </div>
         <div class="tab-panel" id="gpanel-claude">
           <div class="card how-card">
             <div class="section-head" style="margin-bottom:14px;">
@@ -358,119 +391,157 @@
       <section class="section page-view" id="moodboard" data-page="moodboard">
         <div class="section-head">
           <h2>Moodboard</h2>
-          <p class="sub">Visual direction and reference boards.</p>
+          <p class="sub">Chat with Claude, then paste the moodboard here.</p>
         </div>
-        <div class="empty">
-          <div class="big">Coming soon</div>
-          <div>Moodboard generation isn't built yet — check back soon.</div>
+
+        <div class="card how-card">
+          <div class="section-head" style="margin-bottom:14px;">
+            <span class="agent-badge agent-claude" style="margin-bottom:8px; display:inline-block;">CLAUDE — CHAT + COPY-PASTE</span>
+          </div>
+          <div class="how-steps">
+            <div class="how-step"><span class="how-num">1</span><div><b>Chat with Claude</b> in this project, using the Wonderland assistant instructions. Ask for a moodboard — visual direction, color palette, and reference mood for a campaign or theme.</div></div>
+            <div class="how-step"><span class="how-num">2</span><div><b>Claude writes</b> a title, description, color palette, and mood tags for each board item, on-voice and checked against brand rules, then gives you a code block.</div></div>
+            <div class="how-step"><span class="how-num">3</span><div><b>Paste that code block below, or attach the .md file</b> — Wonderland turns it into a visual moodboard.</div></div>
+          </div>
+          <div class="how-example">Try asking: <em>"Buatkan moodboard untuk promo pilates minggu depan, nuansa hangat dan editorial"</em></div>
+          <div class="paste-block" style="margin-top:18px;">
+            <label class="f-label">Paste a Wonderland moodboard (items array)</label>
+            <textarea id="mb-paste-box" placeholder="Paste the ```js items array from a Wonderland chat session here..."></textarea>
+            <div class="field" style="margin-top:10px;">
+              <label class="f-label">…or attach a .md file</label>
+              <input type="file" id="mb-paste-file" accept=".md,.markdown,.txt">
+            </div>
+            <button class="btn btn-accent" id="btn-mb-paste" style="width:100%; margin-top:10px; padding:11px;">Load pasted moodboard</button>
+          </div>
+        </div>
+
+        <div class="section-head" style="margin-top:26px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+          <div>
+            <h2>Board</h2>
+            <p class="sub">Everything loaded into this client's moodboard.</p>
+          </div>
+          <button class="btn btn-outline btn-sm" id="btn-mb-clear">Clear moodboard</button>
+        </div>
+        <div id="moodboard-grid" class="moodboard-grid"></div>
+        <div class="empty" id="moodboard-empty" style="display:none;">
+          <div class="big">No moodboard yet</div>
+          <div>Paste one above, or ask Claude for a moodboard in chat.</div>
         </div>
       </section>
 
       <section class="section page-view" id="campaignbrief" data-page="campaignbrief">
         <div class="section-head">
           <h2>Campaign Brief</h2>
-          <p class="sub">Structured briefs for a full campaign.</p>
+          <p class="sub">Same sections as Buranchi's campaign brief doc — fill them in, write a draft headline/sub/caption and get it rephrased, then export a brief ready for the designer or the client.</p>
         </div>
-        <div class="empty">
-          <div class="big">Coming soon</div>
-          <div>Campaign brief generation isn't built yet — check back soon.</div>
+
+        <div class="card" id="brief-form-card">
+          <div class="field">
+            <label class="f-label">Campaign name</label>
+            <input type="text" id="brief-title" placeholder="e.g. BBB Mahjong Activation">
+          </div>
+          <div class="field">
+            <label class="f-label">Campaign Background</label>
+            <textarea id="brief-background" placeholder="Why this campaign, right now — context, trigger, opportunity" style="min-height:60px;"></textarea>
+          </div>
+          <div class="field">
+            <label class="f-label">Target Audience</label>
+            <textarea id="brief-audience" placeholder="e.g. Family (Moms) -- 25 to 45 years old, SES A - B+, 5km radius" style="min-height:50px;"></textarea>
+          </div>
+          <div class="field">
+            <label class="f-label">Campaign Objective</label>
+            <textarea id="brief-objective" placeholder="e.g. Drive weekday foot traffic and raise spending per table" style="min-height:50px;"></textarea>
+          </div>
+          <div class="field">
+            <label class="f-label">Timeline Campaign</label>
+            <input type="text" id="brief-timeline" placeholder="e.g. Selama September 2026">
+          </div>
+          <div class="field">
+            <label class="f-label">Media Channels</label>
+            <textarea id="brief-channels" placeholder="One per line, with the plan for each — e.g.&#10;Instagram Feeds: 2 feeds for boost ads&#10;Instagram Stories: 4 stories, uploaded weekly" style="min-height:70px;"></textarea>
+          </div>
+          <div class="field">
+            <label class="f-label">Terms and Condition Campaign</label>
+            <textarea id="brief-terms" placeholder="e.g. Beli 1 makanan dan beli 1 minuman" style="min-height:50px;"></textarea>
+          </div>
+
+          <div class="field">
+            <label class="f-label">References Visual</label>
+            <div id="brief-ref-images" class="moodboard-grid" style="margin-top:0; margin-bottom:10px;"></div>
+            <input type="file" id="brief-image-input" multiple accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
+            <button class="btn btn-outline btn-sm" type="button" id="btn-brief-attach-image">+ Upload reference image</button>
+          </div>
+
+          <div class="field">
+            <label class="f-label">Pick references from a database</label>
+            <p class="sub" style="margin:0 0 8px;">Click a thumbnail to add or remove it as a reference for this brief.</p>
+            <div class="tab-row pill-toggle" id="brief-vizref-toggle">
+              <button type="button" class="tab-btn active" id="brief-vizref-competitor" data-src="competitor">Competitor database</button>
+              <button type="button" class="tab-btn" id="brief-vizref-internal" data-src="internal">Internal database</button>
+            </div>
+            <div id="brief-vizref-grid" class="moodboard-grid" style="margin-top:12px;"></div>
+            <div class="empty" id="brief-vizref-empty" style="display:none;">
+              <div class="big">Nothing here yet</div>
+              <div id="brief-vizref-empty-text">No competitor data scraped yet — visit the Competitor Dashboard.</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="f-label">References Content</label>
+            <textarea id="brief-ref-links" placeholder="Reference post links, one per line" style="min-height:60px;"></textarea>
+          </div>
+
+          <div class="field">
+            <label class="f-label">Draft headline (to rephrase)</label>
+            <input type="text" id="brief-draft-headline" placeholder="Your rough headline">
+          </div>
+          <div class="field">
+            <label class="f-label">Draft sub-headline (to rephrase)</label>
+            <input type="text" id="brief-draft-sub" placeholder="Your rough sub-headline">
+          </div>
+          <div class="field">
+            <label class="f-label">Draft caption (to rephrase)</label>
+            <textarea id="brief-draft-caption" placeholder="Your rough caption" style="min-height:60px;"></textarea>
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:6px;">
+            <button class="btn btn-accent" id="btn-brief-generate" style="flex:1; padding:11px;">
+              <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Rephrase wording
+            </button>
+            <button class="btn btn-outline" id="btn-brief-save" style="padding:11px 18px;">Save brief</button>
+          </div>
+          <span id="brief-generate-status" class="rescrape-status"></span>
+        </div>
+
+        <div id="brief-recs-wrap" style="display:none; margin-top:20px;">
+          <div class="section-head">
+            <h2 style="font-size:14.5px;">Rephrased options</h2>
+            <p class="sub">Same message as your draft, reworded 3 ways — pick one to save into the brief.</p>
+          </div>
+          <div id="brief-recs-list"></div>
+        </div>
+
+        <div class="section-head" style="margin-top:26px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+          <div>
+            <h2 style="font-size:14.5px;">Saved briefs</h2>
+            <p class="sub">Every campaign brief created for this client.</p>
+          </div>
+        </div>
+        <div id="brief-saved-list"></div>
+        <div class="empty" id="brief-saved-empty" style="display:none;">
+          <div class="big">No campaign briefs yet</div>
+          <div>Fill in the form above and save one.</div>
         </div>
       </section>
 
       <section class="section page-view" id="ideation" data-page="ideation">
         <div class="section-head">
-          <h2>Ideation</h2>
+          <h2>Creative Ideation</h2>
           <p class="sub">Brainstorm raw content ideas before planning them out.</p>
         </div>
         <div class="empty">
           <div class="big">Coming soon</div>
           <div>Ideation tools aren't built yet — check back soon.</div>
-        </div>
-      </section>
-
-      <section class="section page-view" id="calendar" data-page="calendar">
-        <div class="section-head">
-          <h2>This month's plan</h2>
-          <p class="sub">Grid view by default — switch to list for the full table.</p>
-        </div>
-        <div id="cal-today-banner" class="cal-today-banner" style="display:none;"></div>
-        <div class="analytics-toolbar" style="margin-bottom:16px;">
-          <div class="analytics-filters">
-            <div class="field" style="max-width:220px; margin-bottom:0;">
-              <label class="f-label">Agent</label>
-              <select id="cal-agent-filter">
-                <option value="all">All agents</option>
-                <option value="gemini">Gemini</option>
-                <option value="gemini-chat">Gemini Chat</option>
-                <option value="intelligence">Gemini Creative</option>
-                <option value="claude">Claude</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
-            <div class="field" style="max-width:260px; margin-bottom:0;">
-              <label class="f-label">Generated on</label>
-              <select id="cal-date-filter"><option value="all">All dates</option></select>
-            </div>
-          </div>
-          <div class="tab-row cal-view-toggle">
-            <button class="tab-btn active" id="cal-view-grid" data-calview="grid">📅 Grid</button>
-            <button class="tab-btn" id="cal-view-list" data-calview="list">☰ List</button>
-          </div>
-        </div>
-
-        <div id="cal-grid-panel">
-          <div class="cal-grid-nav">
-            <button class="btn btn-outline btn-sm" id="cal-prev-month">← Prev</button>
-            <div class="cal-grid-month" id="cal-grid-month-label"></div>
-            <button class="btn btn-outline btn-sm" id="cal-next-month">Next →</button>
-            <button class="btn btn-outline btn-sm" id="cal-today-btn">Today</button>
-          </div>
-          <div class="cal-grid-weekdays">
-            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
-          </div>
-          <div class="cal-grid" id="cal-grid"></div>
-        </div>
-
-        <div id="cal-list-panel" style="display:none;">
-          <div class="card" style="padding:0;">
-            <div class="table-wrap">
-              <table class="plan-table">
-                <thead><tr><th>Post</th><th>Date</th><th>Day</th><th>Format</th><th>Headline</th><th>Persona</th><th>Priority</th><th>Agent</th><th></th></tr></thead>
-                <tbody id="cal-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="section page-view" id="previews" data-page="previews">
-        <div class="section-head">
-          <h2>Post previews</h2>
-          <p class="sub">Mockups follow Buranchi's scrapbook design system — matted photo, textured base, editorial headline.</p>
-        </div>
-        <div class="analytics-toolbar" style="margin-bottom:16px;">
-          <div class="analytics-filters">
-            <div class="field" style="max-width:220px; margin-bottom:0;">
-              <label class="f-label">Agent</label>
-              <select id="prev-agent-filter">
-                <option value="all">All agents</option>
-                <option value="gemini">Gemini</option>
-                <option value="gemini-chat">Gemini Chat</option>
-                <option value="intelligence">Gemini Creative</option>
-                <option value="claude">Claude</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
-            <div class="field" style="max-width:260px; margin-bottom:0;">
-              <label class="f-label">Generated on</label>
-              <select id="prev-date-filter"><option value="all">All dates</option></select>
-            </div>
-          </div>
-        </div>
-        <div class="post-cards" id="cards"></div>
-        <div class="empty" id="empty-state">
-          <div class="big">No posts yet</div>
-          <div>Add one above, or paste a plan from a Wonderland chat session.</div>
         </div>
       </section>
 
@@ -491,6 +562,57 @@
         <div class="empty" id="history-empty" style="display:none;">
           <div class="big">No requests logged yet</div>
           <div>Generate a plan from any of the 3 tabs and it'll show up here.</div>
+        </div>
+      </section>
+
+      <section class="section page-view" id="canva" data-page="canva">
+        <div class="section-head">
+          <h2>Canva</h2>
+          <p class="sub">Wonderland writes the copy; Canva builds the visual. Connect an account and map a Brand Template per format — no generative AI, autofill only.</p>
+        </div>
+
+        <div class="card" id="canva-status-card">
+          <div id="canva-not-configured" style="display:none;">
+            <div class="empty">
+              <div class="big">Canva isn't configured yet</div>
+              <div>Needs <code>CANVA_CLIENT_ID</code> / <code>CANVA_CLIENT_SECRET</code> set on the server — Andika's part.</div>
+            </div>
+          </div>
+          <div id="canva-connect-row" style="display:none; align-items:center; justify-content:space-between; gap:14px;">
+            <div>
+              <div class="brief-saved-title">Not connected</div>
+              <div class="brief-saved-meta">Connect the client's Canva account to enable Brand Template autofill.</div>
+            </div>
+            <button class="btn btn-accent" id="btn-canva-connect">Connect Canva account</button>
+          </div>
+          <div id="canva-connected-row" style="display:none; align-items:center; justify-content:space-between; gap:14px;">
+            <div>
+              <div class="brief-saved-title">Connected<span id="canva-connected-name"></span></div>
+              <div class="brief-saved-meta">Brand Template autofill is available on saved Campaign Briefs.</div>
+            </div>
+            <button class="btn btn-outline btn-sm" id="btn-canva-disconnect">Disconnect</button>
+          </div>
+        </div>
+
+        <div class="card" id="canva-mapping-card" style="display:none; margin-top:16px;">
+          <div class="section-head" style="margin-bottom:14px;">
+            <h2 style="font-size:14.5px;">Brand Template mapping</h2>
+            <p class="sub">Which Canva Brand Template to autofill for each format.</p>
+          </div>
+          <div class="field">
+            <label class="f-label">Campaign Brief cover</label>
+            <select id="canva-map-briefCover"><option value="">— pick a template —</option></select>
+          </div>
+          <div class="field">
+            <label class="f-label">Feed post</label>
+            <select id="canva-map-feed"><option value="">— pick a template —</option></select>
+          </div>
+          <div class="field">
+            <label class="f-label">Story</label>
+            <select id="canva-map-story"><option value="">— pick a template —</option></select>
+          </div>
+          <button class="btn btn-accent" id="btn-canva-save-mapping">Save mapping</button>
+          <span id="canva-mapping-status" class="rescrape-status"></span>
         </div>
       </section>
 
@@ -587,13 +709,27 @@
           </div>
           <div class="chat-main">
             <div class="chat-toolbar">
+              <div class="field" style="max-width:150px; margin-bottom:0;">
+                <label class="f-label">Model</label>
+                <select id="cc-model-select">
+                  <option value="gemini">Gemini</option>
+                  <option value="claude">Claude</option>
+                  <option value="gpt">GPT</option>
+                  <option value="kimi">Kimi</option>
+                </select>
+              </div>
               <span id="cc-session-tokens" class="rescrape-status"></span>
               <span id="cc-status" class="rescrape-status"></span>
             </div>
             <div class="chat-log" id="cc-log">
-              <div class="chat-empty" id="cc-empty">Ketik apa yang mau direncanakan atau ditanyakan — misal "buatkan rencana konten untuk minggu ini" atau (setelah ada hasil) "kenapa lo pilih itu?".</div>
+              <div class="chat-empty" id="cc-empty">Ketik apa yang mau direncanakan atau ditanyakan — misal "buatkan rencana konten untuk minggu ini" atau (setelah ada hasil) "kenapa lo pilih itu?". Bisa juga attach file (gambar atau teks) buat dikasih konteks.</div>
             </div>
+            <div id="cc-attachments" class="cc-attachments"></div>
             <div class="chat-input-row">
+              <button class="icon-btn" id="btn-cc-attach" title="Attach file" aria-label="Attach file" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.19 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </button>
+              <input type="file" id="cc-file-input" multiple style="display:none;" accept=".txt,.md,.markdown,.csv,.json,image/png,image/jpeg,image/webp,image/gif">
               <textarea id="cc-input" placeholder="Ketik pesan…" rows="2"></textarea>
               <button class="btn btn-accent" id="btn-cc-send">Send</button>
             </div>
@@ -644,39 +780,6 @@
             <span id="dira-link-status" class="rescrape-status" style="margin-left:8px;"></span>
           </div>
           <div id="dira-groups"></div>
-        </div>
-      </section>
-
-      <section class="section page-view" id="competitors" data-page="competitors">
-        <div class="section-head">
-          <h2>Competitors</h2>
-          <p class="sub">Each client's tracked competitors — this list is what drives scraping direction on the Competitor Dashboard, nothing is discovered automatically.</p>
-        </div>
-
-        <div id="comp-list-view">
-          <div id="comp-client-list"></div>
-        </div>
-
-        <div id="comp-detail-view" style="display:none;">
-          <div class="analytics-toolbar" style="margin-bottom:16px;">
-            <button class="btn btn-outline btn-sm" id="btn-comp-back">← Back to clients</button>
-            <span id="comp-detail-title" style="font-family:'Fraunces', serif; font-size:15px; font-weight:600;"></span>
-          </div>
-
-          <div class="card" style="max-width:520px; margin-bottom:16px;">
-            <div class="field">
-              <label class="f-label">Competitor name</label>
-              <input type="text" id="comp-new-name" placeholder="e.g. Kurasu Indonesia">
-            </div>
-            <div class="field">
-              <label class="f-label">Instagram link or handle</label>
-              <input type="text" id="comp-new-ig" placeholder="https://instagram.com/kurasuid or @kurasuid">
-            </div>
-            <button class="btn btn-accent btn-sm" id="btn-comp-add">+ Add competitor</button>
-            <span id="comp-add-status" class="rescrape-status" style="margin-left:8px;"></span>
-          </div>
-
-          <div id="comp-rows"></div>
         </div>
       </section>
 
