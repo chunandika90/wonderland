@@ -221,7 +221,7 @@ function saveOrgs(orgs) { writeJson(ORGS_FILE, orgs); }
 function slugify(name) { return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'client'; }
 
 app.get('/api/clients', requireAuth, (req, res) => {
-  res.json(loadOrgs().map(o => ({ slug: o.slug, name: o.name })));
+  res.json(loadOrgs().filter(o => o.active !== false).map(o => ({ slug: o.slug, name: o.name })));
 });
 
 app.post('/api/clients', requireAuth, (req, res) => {
@@ -1407,6 +1407,42 @@ app.post('/api/bridge/orgs/:slug/rescrape', requireBridgeSecret, async (req, res
   } catch (e) {
     res.status(400).json({ ok: false, error: e.message });
   }
+});
+
+// Auto-provisioning from Sakara Ops — every Sakara Ops client gets its own
+// lightweight org here (just enough for the Ads/Competitors bridge to work:
+// slug, name, active flag, empty competitors list), kept in sync whenever
+// that client is created/renamed/deleted on the Sakara Ops side. Deliberately
+// skips the posts.json/config template scaffolding create-org.js writes for a
+// real Wonderland content-planning client — these orgs only exist so Sakara
+// Ops has somewhere to point its Compass Org Slug at, not to run the content
+// planner. `active: false` (never a hard delete) is the same soft-delete
+// philosophy Sakara Ops itself uses for clients — history stays, just hidden.
+app.post('/api/bridge/orgs', requireBridgeSecret, (req, res) => {
+  const { slug, name } = req.body || {};
+  if (!slug || !name) return res.status(400).json({ ok: false, error: 'slug and name are required' });
+  if (!/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ ok: false, error: 'slug must be lowercase letters, numbers, and hyphens only' });
+  const orgs = loadOrgs();
+  const existing = orgs.find(o => o.slug === slug);
+  if (existing) {
+    existing.name = name;
+    existing.active = true;
+    saveOrgs(orgs);
+    return res.json({ ok: true, slug, created: false });
+  }
+  orgs.push({ slug, name, useSharedConfig: false, active: true, competitors: [], createdAt: new Date().toISOString() });
+  saveOrgs(orgs);
+  res.json({ ok: true, slug, created: true });
+});
+
+app.patch('/api/bridge/orgs/:slug', requireBridgeSecret, (req, res) => {
+  const orgs = loadOrgs();
+  const org = orgs.find(o => o.slug === req.params.slug);
+  if (!org) return res.status(404).json({ ok: false, error: 'Organization not found' });
+  if (req.body.name !== undefined) org.name = req.body.name;
+  if (req.body.active !== undefined) org.active = !!req.body.active;
+  saveOrgs(orgs);
+  res.json({ ok: true });
 });
 
 // Daily auto-rescrape at midnight, local server time — runs for every org that has an Apify
