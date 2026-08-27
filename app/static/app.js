@@ -1,6 +1,5 @@
 const $ = id => document.getElementById(id);
 let posts = [];
-let moodboard = [];
 let currentOrgSlug = '';
 
 /* ---------- theme toggle (works pre-login too, so it's wired outside init()) ---------- */
@@ -33,6 +32,10 @@ const CONFIG_EXPLAINERS = {
   'compass-assistant': {
     what: 'The full assistant instructions — role definition, the design system, the intake checklist, and the exact output format Claude uses to hand off a plan to this app. This is the file you\'d paste into a separate Claude Project if you ever want Wonderland to run outside this chat.',
     how: 'Write it as direct instructions to an AI, not as documentation for a person — imperative, structured under clear headers, precise about what to do and what not to do. Advanced edit: most day-to-day brand changes belong in the three files above, not here.'
+  },
+  'brand-visual-identity': {
+    what: 'Logo usage, the color palette (with hex codes), and typography — Sakara\'s actual visual identity system, not the copywriting brand voice above. This is reference documentation, not something Claude quotes directly into a caption.',
+    how: 'Keep hex codes exact and the logo/font asset paths current. When new sections of the brand guideline (tone, photo direction, graphics, icons, charts) get finalized, add them here rather than starting a separate file, so there\'s one place that documents the visual system.'
   }
 };
 
@@ -73,8 +76,8 @@ async function init(){
 
   posts = await api('/api/posts') || [];
 
-  moodboard = await api('/api/moodboard') || [];
-  renderMoodboard();
+  await loadMoodboardStudio();
+  populateMbsBookingStartOptions();
 
   savedBriefs = await api('/api/campaign-briefs') || [];
   renderSavedBriefs();
@@ -101,9 +104,43 @@ async function init(){
     btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
   });
 
-  $('btn-mb-paste').addEventListener('click', loadPastedMoodboard);
-  $('mb-paste-file').addEventListener('change', loadPastedMoodboardFile);
-  $('btn-mb-clear').addEventListener('click', clearMoodboard);
+  $('btn-mbs-new').addEventListener('click', createNewMbsDeck);
+  $('btn-mbs-back').addEventListener('click', closeMbsEditor);
+  $('btn-mbs-save').addEventListener('click', saveMbsDeck);
+  $('btn-mbs-preview').addEventListener('click', openMbsPreview);
+  $('btn-mbs-generate').addEventListener('click', async () => { await saveMbsDeck(); generateMbsDeck(); });
+  $('mbs-preview-close').addEventListener('click', closeMbsPreview);
+  $('mbs-preview-overlay').addEventListener('click', closeMbsPreview);
+  $('mbs-preview-prev').addEventListener('click', mbsPreviewPrev);
+  $('mbs-preview-next').addEventListener('click', mbsPreviewNext);
+  $('btn-mbs-add-rundown-row').addEventListener('click', () => { mbsDeck.whereWhen.rundown.push({time:'',activity:'',duration:'',note:''}); renderMbsRundown(); });
+  $('btn-mbs-auto-rundown').addEventListener('click', autoGenerateMbsRundown);
+  $('btn-mbs-add-booking').addEventListener('click', addMbsBooking);
+  $('btn-mbs-add-shot').addEventListener('click', addMbsShot);
+  $('btn-mbs-add-background').addEventListener('click', addMbsBackground);
+  $('btn-mbs-add-provided-prop').addEventListener('click', addMbsProvidedProp);
+  $('btn-mbs-add-buy-prop').addEventListener('click', addMbsBuyProp);
+  $('btn-mbs-add-styling').addEventListener('click', addMbsStyling);
+  $('btn-mbs-coverImage').addEventListener('click', () => $('mbs-coverImage-input').click());
+  $('mbs-coverImage-input').addEventListener('change', async () => {
+    const file = $('mbs-coverImage-input').files[0];
+    if(!file) return;
+    mbsDeck.meta.coverImage = await readImageAsAsset(file);
+    renderMbsSingleImage('mbs-coverImage-preview', mbsDeck.meta.coverImage, (img) => { mbsDeck.meta.coverImage = img; });
+  });
+  $('btn-mbs-directionImage').addEventListener('click', () => $('mbs-directionImage-input').click());
+  $('mbs-directionImage-input').addEventListener('change', async () => {
+    const file = $('mbs-directionImage-input').files[0];
+    if(!file) return;
+    mbsDeck.intention.directionImage = await readImageAsAsset(file);
+    renderMbsSingleImage('mbs-directionImage-preview', mbsDeck.intention.directionImage, (img) => { mbsDeck.intention.directionImage = img; });
+  });
+  $('btn-mbs-locationImages').addEventListener('click', () => $('mbs-locationImages-input').click());
+  $('mbs-locationImages-input').addEventListener('change', async () => {
+    const files = Array.from($('mbs-locationImages-input').files || []);
+    for(const file of files) mbsDeck.whereWhen.locationImages.push(await readImageAsAsset(file));
+    renderMbsImageGrid('mbs-locationImages-grid', mbsDeck.whereWhen.locationImages);
+  });
   $('btn-logout').addEventListener('click', async () => { await api('/api/logout', { method:'POST' }); window.location.href = withBase('/login.html'); });
 
   $('config-save').addEventListener('click', saveConfig);
@@ -120,15 +157,6 @@ async function init(){
   if(savedModel) $('cc-model-select').value = savedModel;
   $('cc-model-select').addEventListener('change', () => localStorage.setItem('compass-cc-model', $('cc-model-select').value));
   $('btn-save-agent-behavior').addEventListener('click', saveAgentBehavior);
-  $('btn-dira-sync').addEventListener('click', syncDirectoryA);
-  $('btn-dira-add-client').addEventListener('click', () => { $('dira-add-client-form').style.display = 'block'; });
-  $('btn-dira-cancel-create').addEventListener('click', () => { $('dira-add-client-form').style.display = 'none'; });
-  $('btn-dira-create-client').addEventListener('click', createNewClient);
-  $('btn-dira-back').addEventListener('click', closeDirectoryADetail);
-  $('btn-dira-link').addEventListener('click', linkDriveFolder);
-  $('btn-canva-connect').addEventListener('click', () => { window.location.href = withBase('/api/canva/connect'); });
-  $('btn-canva-disconnect').addEventListener('click', disconnectCanva);
-  $('btn-canva-save-mapping').addEventListener('click', saveCanvaMapping);
   document.querySelectorAll('[data-add-agent]').forEach(btn => {
     btn.addEventListener('click', () => addRuleRow('', 'ab-extra-' + btn.dataset.addAgent).querySelector('input').focus());
   });
@@ -136,25 +164,6 @@ async function init(){
   $('detail-overlay').addEventListener('click', closeDetail);
   $('lightbox-close').addEventListener('click', closeLightbox);
   $('lightbox-overlay').addEventListener('click', closeLightbox);
-
-  ['cal-agent-filter','cal-date-filter','prev-agent-filter','prev-date-filter'].forEach(id => {
-    $(id).addEventListener('change', renderCalendarAndPreviews);
-  });
-  $('cal-view-grid').addEventListener('click', () => setCalView('grid'));
-  $('cal-view-list').addEventListener('click', () => setCalView('list'));
-  $('cal-prev-month').addEventListener('click', () => {
-    calGridMonth = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth() - 1, 1);
-    renderCalendarAndPreviews();
-  });
-  $('cal-next-month').addEventListener('click', () => {
-    calGridMonth = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth() + 1, 1);
-    renderCalendarAndPreviews();
-  });
-  $('cal-today-btn').addEventListener('click', () => {
-    calGridMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    renderCalendarAndPreviews();
-  });
-  setCalView(calViewMode);
 
   // Mobile: hamburger toggles the sidebar as an off-canvas drawer. Desktop keeps the sidebar always visible.
   $('btn-hamburger').addEventListener('click', () => {
@@ -187,14 +196,11 @@ async function init(){
       if(a.dataset.page === 'agentbehavior'){ loadGuardrails(); loadAgentBehavior(); }
       if(a.dataset.page === 'creativechat') initCreativeChatPage();
       if(a.dataset.page === 'dashboard') loadDashboard();
-      if(a.dataset.page === 'directorya') loadDirectoryA();
-      if(a.dataset.page === 'canva') loadCanvaPage();
-      if(a.dataset.page === 'calendar' || a.dataset.page === 'previews') renderCalendarAndPreviews();
+      if(a.dataset.page === 'moodboard') loadMoodboardStudio();
     });
   });
 
-  if(location.hash === '#canva'){ showPage('canva'); loadCanvaPage(); }
-  else showPage('generate');
+  showPage('generate');
 
   initAnalytics().then(renderBriefVizrefGrid);
   loadDirectoryAManifestCache().then(renderBriefVizrefGrid);
@@ -230,22 +236,18 @@ function closeClientPicker(){
 // Each sidebar destination is its own page — only one is visible at a time, no more
 // scroll-through-everything. The plan KPI strip + Clear/Export/Re-match actions only make
 // sense for the content-plan pages, so they hide on Analytics and Master Config.
-const CONTENT_PLAN_PAGES = ['generate', 'calendar', 'previews'];
+const CONTENT_PLAN_PAGES = ['generate'];
 const PAGE_SUBTITLES = {
   analytics: "Competitor Instagram data — scrape, filter, and see what's working for them.",
   generate: 'Build a plan, check it against brand standing rules, and export it in Buranchi\'s house style.',
-  moodboard: 'Visual direction and reference boards.',
+  moodboard: 'Cover, direction, shotlist, backgrounds, props, styling, and booking availability.',
   campaignbrief: 'Same sections as the real brief doc, plus AI rephrasing and a visual reference picker.',
   ideation: 'Brainstorm raw content ideas before planning them out.',
-  calendar: "Every post in this plan, in the order they were added.",
-  previews: "Mockups follow Buranchi's scrapbook design system.",
   history: 'Every plan request across all 3 tabs, with token cost and post count.',
   agentbehavior: 'Guardrails global plus kondisi default per agent, dengan kondisi tambahan yang bisa lo edit sendiri.',
   creativechat: 'Ngobrol atau minta rencana konten — pilih sendiri modelnya, dalam 1 percakapan.',
   masterconfig: 'The brand files Claude and Gemini both read when drafting a plan.',
-  dashboard: 'Ringkasan status konten plan untuk organisasi ini.',
-  directorya: "Read-only mirror of the client's Google Drive creative archive.",
-  canva: 'Wonderland writes the copy; Canva builds the visual via Brand Template autofill.'
+  dashboard: 'Ringkasan status konten plan untuk organisasi ini.'
 };
 
 function showPage(pageId){
@@ -1202,77 +1204,571 @@ async function clearAll(){
   posts = [];
 }
 
-/* ---------- moodboard (same paste-from-Claude-chat workflow as the content plan) ---------- */
-async function loadPastedMoodboardFromText(raw){
-  const cleaned = raw.trim().replace(/^```(js|json)?/i,'').replace(/```$/,'').trim();
-  const arr = new Function('return ' + cleaned)();
-  if(!Array.isArray(arr)) throw new Error('not an array');
-  arr.forEach(item => { if(!item.generatedBy) item.generatedBy = 'claude'; });
-  moodboard = await api('/api/moodboard/bulk', { method:'POST', body: JSON.stringify(arr) }) || moodboard;
-  renderMoodboard();
+/* ---------- Moodboard Studio (full Wonder-team deck editor, per Moodboard-Studio-Wonder-Team-Spec.md) ---------- */
+let mbsDecks = [];
+let mbsDeck = null; // full deck object currently open in the editor, or null when on the list view
+let mbsBookings = [];
+let mbsPreviewSlides = [];
+let mbsPreviewIdx = 0;
+
+async function loadMoodboardStudio(){
+  mbsDecks = await api('/api/moodboard-studio') || [];
+  renderMbsDeckList();
+  $('mbs-list-view').style.display = 'block';
+  $('mbs-editor-view').style.display = 'none';
 }
 
-async function loadPastedMoodboard(){
-  const raw = $('mb-paste-box').value.trim();
-  if(!raw) return;
-  try {
-    await loadPastedMoodboardFromText(raw);
-    $('mb-paste-box').value = '';
-  } catch(e){
-    alert('Could not parse that moodboard. Make sure it\'s a valid items array. (' + e.message + ')');
-  }
-}
-
-async function loadPastedMoodboardFile(){
-  const input = $('mb-paste-file');
-  const file = input.files && input.files[0];
-  if(!file) return;
-  try {
-    const text = await file.text();
-    await loadPastedMoodboardFromText(text);
-    input.value = '';
-    $('mb-paste-box').value = '';
-  } catch(e){
-    alert('Could not parse that .md file. Make sure it contains a valid items array. (' + e.message + ')');
-  }
-}
-
-async function clearMoodboard(){
-  if(!confirm('Clear the whole moodboard for this client?')) return;
-  await api('/api/moodboard', { method:'DELETE' });
-  moodboard = [];
-  renderMoodboard();
-}
-
-async function deleteMoodboardItem(id){
-  await api('/api/moodboard/' + id, { method:'DELETE' });
-  moodboard = moodboard.filter(m => m.id !== id);
-  renderMoodboard();
-}
-
-function renderMoodboard(){
-  const grid = $('moodboard-grid');
-  if(!grid) return;
-  const empty = $('moodboard-empty');
-  if(!moodboard.length){
-    grid.innerHTML = '';
+function renderMbsDeckList(){
+  const empty = $('mbs-deck-empty');
+  if(!mbsDecks.length){
+    $('mbs-deck-list').innerHTML = '';
     if(empty) empty.style.display = 'block';
     return;
   }
   if(empty) empty.style.display = 'none';
-  grid.innerHTML = moodboard.map(item => `
-    <div class="moodboard-card">
-      ${item.referenceImage ? `<img src="${esc(item.referenceImage)}" alt="${esc(item.title || '')}">` : ''}
-      <h3>${esc(item.title || 'Untitled')}</h3>
-      ${item.description ? `<p>${esc(item.description)}</p>` : ''}
-      ${Array.isArray(item.colorPalette) && item.colorPalette.length ? `<div class="moodboard-swatches">${item.colorPalette.map(c => `<div class="moodboard-swatch" style="background:${esc(c)}" title="${esc(c)}"></div>`).join('')}</div>` : ''}
-      ${Array.isArray(item.tags) && item.tags.length ? `<div class="moodboard-tags">${item.tags.map(t => `<span class="moodboard-tag">${esc(t)}</span>`).join('')}</div>` : ''}
-      <div class="moodboard-card-actions"><button class="btn btn-outline btn-sm" data-mb-del="${esc(item.id)}">Remove</button></div>
+  $('mbs-deck-list').innerHTML = mbsDecks.slice().reverse().map(d => `
+    <div class="mbs-deck-card" data-mbs-open="${esc(d.id)}">
+      <div>
+        <div class="mbs-deck-title">${esc(d.title)}</div>
+        <div class="mbs-deck-meta">${esc(d.clientName || 'No client set')}${d.date ? ' · ' + esc(d.date) : ''} · updated ${fmtDateTime(d.updatedAt)}</div>
+      </div>
+      <button class="btn btn-outline btn-sm" data-mbs-delete="${esc(d.id)}">Delete</button>
     </div>
   `).join('');
-  grid.querySelectorAll('[data-mb-del]').forEach(btn => {
-    btn.addEventListener('click', () => deleteMoodboardItem(btn.dataset.mbDel));
+  $('mbs-deck-list').querySelectorAll('[data-mbs-open]').forEach(card => {
+    card.addEventListener('click', (e) => { if(!e.target.closest('[data-mbs-delete]')) openMbsDeck(card.dataset.mbsOpen); });
   });
+  $('mbs-deck-list').querySelectorAll('[data-mbs-delete]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if(!confirm('Delete this moodboard? This cannot be undone.')) return;
+      await api('/api/moodboard-studio/' + btn.dataset.mbsDelete, { method:'DELETE' });
+      loadMoodboardStudio();
+    });
+  });
+}
+
+async function createNewMbsDeck(){
+  const deck = await api('/api/moodboard-studio', { method:'POST' });
+  if(deck) openMbsDeck(deck.id);
+}
+
+async function openMbsDeck(id){
+  const deck = await api('/api/moodboard-studio/' + id);
+  if(!deck) return;
+  mbsDeck = deck;
+  await loadMbsBookings();
+  populateMbsForm(deck);
+  $('mbs-list-view').style.display = 'none';
+  $('mbs-editor-view').style.display = 'block';
+  $('mbs-save-status').textContent = '';
+}
+
+function closeMbsEditor(){
+  mbsDeck = null;
+  loadMoodboardStudio();
+}
+
+function populateMbsForm(d){
+  $('mbs-clientName').value = d.meta.clientName || '';
+  $('mbs-projectTitle').value = d.meta.projectTitle || '';
+  $('mbs-year').value = d.meta.year || '';
+  $('mbs-studioName').value = d.meta.studioName || '';
+  $('mbs-confidentialNote').value = d.meta.confidentialNote || '';
+  renderMbsSingleImage('mbs-coverImage-preview', d.meta.coverImage, (img) => { d.meta.coverImage = img; });
+
+  $('mbs-concept').value = d.intention.concept || '';
+  $('mbs-directionTitle').value = d.intention.directionTitle || '';
+  $('mbs-lighting').value = d.intention.lighting || '';
+  $('mbs-vibe').value = d.intention.vibe || '';
+  $('mbs-focus').value = d.intention.focus || '';
+  $('mbs-clientLikes').value = d.intention.clientLikes || '';
+  $('mbs-clientEvaluation').value = d.intention.clientEvaluation || '';
+  $('mbs-teamDiscernment').value = d.intention.teamDiscernment || '';
+  const anchors = d.intention.anchorWords || ['','',''];
+  $('mbs-anchor-0').value = anchors[0] || ''; $('mbs-anchor-1').value = anchors[1] || ''; $('mbs-anchor-2').value = anchors[2] || '';
+  $('mbs-boundaries').value = d.intention.boundaries || '';
+  renderMbsSingleImage('mbs-directionImage-preview', d.intention.directionImage, (img) => { d.intention.directionImage = img; });
+
+  $('mbs-locationName').value = d.whereWhen.locationName || '';
+  $('mbs-address').value = d.whereWhen.address || '';
+  $('mbs-date').value = d.whereWhen.date || '';
+  $('mbs-crewStandby').value = d.whereWhen.crewStandby || '';
+  $('mbs-sessionTime').value = d.whereWhen.sessionTime || '';
+  renderMbsImageGrid('mbs-locationImages-grid', d.whereWhen.locationImages);
+  renderMbsRundown();
+  renderMbsBookings();
+
+  renderMbsShots();
+  renderMbsBackgrounds();
+  renderMbsProvidedProps();
+  renderMbsBuyProps();
+  renderMbsStyling();
+
+  $('mbs-thankYouNote').value = d.closing.thankYouNote || '';
+  $('mbs-nextStepsNote').value = d.closing.nextStepsNote || '';
+}
+
+// Writes every simple (non-repeatable-array) field back into mbsDeck. Repeatable arrays (rundown,
+// shots, backgrounds, props, styling, images) are mutated live as the user edits them instead —
+// see each section's render function — so they don't need collecting here.
+function collectMbsSimpleFields(){
+  const d = mbsDeck;
+  d.meta.clientName = $('mbs-clientName').value.trim();
+  d.meta.projectTitle = $('mbs-projectTitle').value.trim();
+  d.meta.year = parseInt($('mbs-year').value, 10) || d.meta.year;
+  d.meta.studioName = $('mbs-studioName').value.trim();
+  d.meta.confidentialNote = $('mbs-confidentialNote').value.trim();
+
+  d.intention.concept = $('mbs-concept').value.trim();
+  d.intention.directionTitle = $('mbs-directionTitle').value.trim();
+  d.intention.lighting = $('mbs-lighting').value.trim();
+  d.intention.vibe = $('mbs-vibe').value.trim();
+  d.intention.focus = $('mbs-focus').value.trim();
+  d.intention.clientLikes = $('mbs-clientLikes').value.trim();
+  d.intention.clientEvaluation = $('mbs-clientEvaluation').value.trim();
+  d.intention.teamDiscernment = $('mbs-teamDiscernment').value.trim();
+  d.intention.anchorWords = [$('mbs-anchor-0').value.trim(), $('mbs-anchor-1').value.trim(), $('mbs-anchor-2').value.trim()];
+  d.intention.boundaries = $('mbs-boundaries').value.trim();
+
+  d.whereWhen.locationName = $('mbs-locationName').value.trim();
+  d.whereWhen.address = $('mbs-address').value.trim();
+  d.whereWhen.date = $('mbs-date').value;
+  d.whereWhen.crewStandby = $('mbs-crewStandby').value;
+  d.whereWhen.sessionTime = $('mbs-sessionTime').value;
+
+  d.closing.thankYouNote = $('mbs-thankYouNote').value.trim();
+  d.closing.nextStepsNote = $('mbs-nextStepsNote').value.trim();
+}
+
+async function saveMbsDeck(){
+  collectMbsSimpleFields();
+  $('mbs-save-status').textContent = 'Saving…';
+  const saved = await api('/api/moodboard-studio/' + mbsDeck.id, { method:'PUT', body: JSON.stringify(mbsDeck) });
+  if(saved){ mbsDeck = saved; $('mbs-save-status').textContent = 'Saved ✓'; }
+  else $('mbs-save-status').textContent = 'Could not save.';
+}
+
+/* -- single/multi image fields (cover, direction, location photos) -- */
+async function readImageAsAsset(file){
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  return { name: file.name, mimeType: file.type, data: dataUrl.split(',')[1] };
+}
+
+function renderMbsSingleImage(containerId, img, onRemove){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = img ? `
+    <div class="brief-ref-img-card">
+      <img src="data:${img.mimeType};base64,${img.data}" alt="${esc(img.name||'')}">
+      <button type="button" data-mbs-remove-single>×</button>
+    </div>` : '';
+  const btn = el.querySelector('[data-mbs-remove-single]');
+  if(btn) btn.addEventListener('click', () => { onRemove(null); renderMbsSingleImage(containerId, null, onRemove); });
+}
+
+function renderMbsImageGrid(containerId, images){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = (images||[]).map((img, idx) => `
+    <div class="brief-ref-img-card">
+      <img src="data:${img.mimeType};base64,${img.data}" alt="${esc(img.name||'')}">
+      <button type="button" data-mbs-remove-grid="${idx}">×</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-mbs-remove-grid]').forEach(btn => {
+    btn.addEventListener('click', () => { images.splice(parseInt(btn.dataset.mbsRemoveGrid,10), 1); renderMbsImageGrid(containerId, images); });
+  });
+}
+
+/* -- 3. Where, When & Rundown -- */
+function renderMbsRundown(){
+  $('mbs-rundown-body').innerHTML = mbsDeck.whereWhen.rundown.map((r, idx) => `
+    <tr>
+      <td><input type="text" value="${esc(r.time||'')}" data-mbs-rundown="${idx}" data-field="time" style="width:80px;"></td>
+      <td><input type="text" value="${esc(r.activity||'')}" data-mbs-rundown="${idx}" data-field="activity"></td>
+      <td><input type="text" value="${esc(r.duration||'')}" data-mbs-rundown="${idx}" data-field="duration" style="width:80px;"></td>
+      <td><input type="text" value="${esc(r.note||'')}" data-mbs-rundown="${idx}" data-field="note"></td>
+      <td class="row-actions"><button data-mbs-rundown-del="${idx}">Remove</button></td>
+    </tr>
+  `).join('');
+  $('mbs-rundown-body').querySelectorAll('[data-mbs-rundown]').forEach(input => {
+    input.addEventListener('input', () => { mbsDeck.whereWhen.rundown[input.dataset.mbsRundown][input.dataset.field] = input.value; });
+  });
+  $('mbs-rundown-body').querySelectorAll('[data-mbs-rundown-del]').forEach(btn => {
+    btn.addEventListener('click', () => { mbsDeck.whereWhen.rundown.splice(parseInt(btn.dataset.mbsRundownDel,10), 1); renderMbsRundown(); });
+  });
+}
+
+// Fixed formula per spec §3: 60min prep, ~12min per shot, 20min changeover between concept/
+// background groups (consecutive shots sharing the same conceptRef count as one group), 30min
+// crew break after each group. Rows stay manually editable afterward.
+function autoGenerateMbsRundown(){
+  const shots = mbsDeck.shotlist.shots;
+  if(!shots.length){ alert('Add shots to the shot list first.'); return; }
+  const rows = [];
+  let t = 9 * 60; // minutes from midnight, arbitrary start — team adjusts times as needed
+  const fmt = (mins) => `${String(Math.floor(mins/60)%24).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
+  rows.push({ time: fmt(t), activity: 'Prep', duration: '60 min', note: '' });
+  t += 60;
+  let lastConcept = undefined;
+  shots.forEach((shot, i) => {
+    if(i > 0 && shot.conceptRef !== lastConcept){
+      rows.push({ time: fmt(t), activity: 'Changeover', duration: '20 min', note: `Into "${shot.conceptRef || 'next background'}"` });
+      t += 20;
+      rows.push({ time: fmt(t), activity: 'Crew break', duration: '30 min', note: '' });
+      t += 30;
+    }
+    rows.push({ time: fmt(t), activity: `Shoot: ${shot.title || '(untitled shot)'}`, duration: '12 min', note: shot.conceptRef || '' });
+    t += 12;
+    lastConcept = shot.conceptRef;
+  });
+  mbsDeck.whereWhen.rundown = rows;
+  renderMbsRundown();
+}
+
+/* -- Availability / Bookings (shared across every deck for this client) -- */
+async function loadMbsBookings(){
+  mbsBookings = await api('/api/moodboard-bookings') || [];
+  renderMbsBookings();
+}
+
+function renderMbsBookings(){
+  const el = $('mbs-bookings-list');
+  if(!el) return;
+  el.innerHTML = mbsBookings.slice().sort((a,b) => (a.date+a.start).localeCompare(b.date+b.start)).map(b => `
+    <div class="mbs-booking-row">
+      <span><b>${esc(b.date)}</b> · ${esc(b.start)} · ${esc(b.hours)}h <span class="mbs-booking-label">— ${esc(b.label||'')}</span></span>
+      <button class="btn btn-outline btn-sm" data-mbs-booking-del="${esc(b.id)}">Remove</button>
+    </div>
+  `).join('') || '<div class="rec-item">No bookings yet.</div>';
+  el.querySelectorAll('[data-mbs-booking-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await api('/api/moodboard-bookings/' + btn.dataset.mbsBookingDel, { method:'DELETE' });
+      loadMbsBookings();
+    });
+  });
+}
+
+function populateMbsBookingStartOptions(){
+  const sel = $('mbs-booking-start');
+  const opts = [];
+  for(let h = 9; h <= 21; h += 2) opts.push(`<option value="${String(h).padStart(2,'0')}:00">${String(h).padStart(2,'0')}:00</option>`);
+  sel.innerHTML = opts.join('');
+}
+
+async function addMbsBooking(){
+  const date = $('mbs-booking-date').value;
+  const start = $('mbs-booking-start').value;
+  const hours = $('mbs-booking-hours').value;
+  const label = $('mbs-booking-label').value.trim();
+  if(!date || !start){ alert('Pick a date and start time.'); return; }
+  const res = await api('/api/moodboard-bookings', { method:'POST', body: JSON.stringify({ date, start, hours, label }) });
+  if(res && res.id){
+    $('mbs-booking-date').value = ''; $('mbs-booking-label').value = '';
+    await loadMbsBookings();
+  }
+}
+
+/* -- 4. Product Shot List -- */
+function renderMbsShots(){
+  $('mbs-shots-list').innerHTML = mbsDeck.shotlist.shots.map((s, idx) => `
+    <div class="mbs-repeat-card">
+      <div class="mbs-repeat-head"><b>Shot ${idx+1}</b><button class="btn btn-outline btn-sm" data-mbs-shot-del="${idx}">Remove</button></div>
+      <div class="mbs-row">
+        <div class="field"><label class="f-label">Type</label>
+          <select data-mbs-shot="${idx}" data-field="type"><option value="group" ${s.type==='group'?'selected':''}>Group photo</option><option value="individual" ${s.type==='individual'?'selected':''}>Individual</option></select>
+        </div>
+        <div class="field"><label class="f-label">Shot title</label><input type="text" value="${esc(s.title||'')}" data-mbs-shot="${idx}" data-field="title"></div>
+        <div class="field"><label class="f-label">Uses concept/background</label><input type="text" value="${esc(s.conceptRef||'')}" data-mbs-shot="${idx}" data-field="conceptRef"></div>
+      </div>
+      <div class="mbs-products" id="mbs-shot-products-${idx}"></div>
+      <button class="btn btn-outline btn-sm" type="button" data-mbs-add-product="${idx}">+ Add product</button>
+    </div>
+  `).join('') || '<div class="rec-item">No shots yet.</div>';
+
+  mbsDeck.shotlist.shots.forEach((s, idx) => renderMbsShotProducts(idx));
+
+  $('mbs-shots-list').querySelectorAll('[data-mbs-shot]').forEach(inp => {
+    inp.addEventListener('input', () => { mbsDeck.shotlist.shots[inp.dataset.mbsShot][inp.dataset.field] = inp.value; });
+  });
+  $('mbs-shots-list').querySelectorAll('[data-mbs-shot-del]').forEach(btn => {
+    btn.addEventListener('click', () => { mbsDeck.shotlist.shots.splice(parseInt(btn.dataset.mbsShotDel,10), 1); renderMbsShots(); });
+  });
+  $('mbs-shots-list').querySelectorAll('[data-mbs-add-product]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.mbsAddProduct, 10);
+      mbsDeck.shotlist.shots[idx].products.push({ name:'', variant:'', highlighted:false });
+      renderMbsShotProducts(idx);
+    });
+  });
+}
+
+function renderMbsShotProducts(shotIdx){
+  const el = $('mbs-shot-products-' + shotIdx);
+  if(!el) return;
+  const products = mbsDeck.shotlist.shots[shotIdx].products;
+  el.innerHTML = products.map((p, pIdx) => `
+    <div class="mbs-row">
+      <div class="field"><input type="text" placeholder="Product name" value="${esc(p.name||'')}" data-mbs-product="${shotIdx}:${pIdx}" data-field="name"></div>
+      <div class="field"><input type="text" placeholder="Variant" value="${esc(p.variant||'')}" data-mbs-product="${shotIdx}:${pIdx}" data-field="variant"></div>
+      <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--fg-muted); white-space:nowrap;"><input type="checkbox" ${p.highlighted?'checked':''} data-mbs-product="${shotIdx}:${pIdx}" data-field="highlighted"> Highlighted</label>
+      <button class="btn btn-outline btn-sm" type="button" data-mbs-product-del="${shotIdx}:${pIdx}">×</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-mbs-product]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const [sIdx, pIdx] = inp.dataset.mbsProduct.split(':').map(Number);
+      const val = inp.type === 'checkbox' ? inp.checked : inp.value;
+      mbsDeck.shotlist.shots[sIdx].products[pIdx][inp.dataset.field] = val;
+    });
+  });
+  el.querySelectorAll('[data-mbs-product-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sIdx, pIdx] = btn.dataset.mbsProductDel.split(':').map(Number);
+      mbsDeck.shotlist.shots[sIdx].products.splice(pIdx, 1);
+      renderMbsShotProducts(sIdx);
+    });
+  });
+}
+
+function addMbsShot(){
+  mbsDeck.shotlist.shots.push({ type:'group', title:'', conceptRef:'', products:[] });
+  renderMbsShots();
+}
+
+/* -- 5. Background Used -- */
+function renderMbsBackgrounds(){
+  $('mbs-backgrounds-list').innerHTML = mbsDeck.backgrounds.concepts.map((c, idx) => `
+    <div class="mbs-repeat-card">
+      <div class="mbs-repeat-head"><b>Background ${idx+1}</b><button class="btn btn-outline btn-sm" data-mbs-bg-del="${idx}">Remove</button></div>
+      <div class="mbs-row">
+        <div class="field"><label class="f-label">Name</label><input type="text" value="${esc(c.name||'')}" data-mbs-bg="${idx}" data-field="name"></div>
+        <div class="field"><label class="f-label">Top background</label><input type="text" value="${esc(c.bgTop||'')}" data-mbs-bg="${idx}" data-field="bgTop"></div>
+        <div class="field"><label class="f-label">Bottom background</label><input type="text" value="${esc(c.bgBottom||'')}" data-mbs-bg="${idx}" data-field="bgBottom"></div>
+      </div>
+      <div class="field"><label class="f-label">Reasoning</label><textarea data-mbs-bg="${idx}" data-field="note" style="min-height:50px;">${esc(c.note||'')}</textarea></div>
+      <div class="field">
+        <label class="f-label">Pairing mock-up</label>
+        <div id="mbs-bg-image-${idx}" class="moodboard-grid" style="margin-top:0;"></div>
+        <input type="file" data-mbs-bg-image-input="${idx}" accept="image/*" style="display:none;">
+        <button class="btn btn-outline btn-sm" type="button" data-mbs-bg-image-btn="${idx}">+ Add mock-up</button>
+      </div>
+    </div>
+  `).join('') || '<div class="rec-item">No backgrounds yet.</div>';
+
+  mbsDeck.backgrounds.concepts.forEach((c, idx) => {
+    renderMbsSingleImage('mbs-bg-image-' + idx, c.mockupImage, (img) => { c.mockupImage = img; });
+  });
+  $('mbs-backgrounds-list').querySelectorAll('[data-mbs-bg]').forEach(inp => {
+    inp.addEventListener('input', () => { mbsDeck.backgrounds.concepts[inp.dataset.mbsBg][inp.dataset.field] = inp.value; });
+  });
+  $('mbs-backgrounds-list').querySelectorAll('[data-mbs-bg-del]').forEach(btn => {
+    btn.addEventListener('click', () => { mbsDeck.backgrounds.concepts.splice(parseInt(btn.dataset.mbsBgDel,10), 1); renderMbsBackgrounds(); });
+  });
+  $('mbs-backgrounds-list').querySelectorAll('[data-mbs-bg-image-btn]').forEach(btn => {
+    const idx = btn.dataset.mbsBgImageBtn;
+    btn.addEventListener('click', () => $(`[data-mbs-bg-image-input="${idx}"]`).click());
+  });
+  $('mbs-backgrounds-list').querySelectorAll('[data-mbs-bg-image-input]').forEach(input => {
+    const idx = parseInt(input.dataset.mbsBgImageInput, 10);
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if(!file) return;
+      mbsDeck.backgrounds.concepts[idx].mockupImage = await readImageAsAsset(file);
+      renderMbsBackgrounds();
+    });
+  });
+}
+
+function addMbsBackground(){
+  mbsDeck.backgrounds.concepts.push({ name:'', bgTop:'', bgBottom:'', mockupImage:null, note:'' });
+  renderMbsBackgrounds();
+}
+
+/* -- 6. Props & Background -- */
+function renderMbsProvidedProps(){
+  $('mbs-noPropsNote').value = mbsDeck.props.noPropsNote || '';
+  $('mbs-provided-props-list').innerHTML = mbsDeck.props.providedItems.map((p, idx) => `
+    <div class="mbs-row">
+      <div class="field"><input type="text" placeholder="Prop name" value="${esc(p.name||'')}" data-mbs-provided="${idx}" data-field="name"></div>
+      <div class="field"><input type="text" placeholder="Note" value="${esc(p.note||'')}" data-mbs-provided="${idx}" data-field="note"></div>
+      <button class="btn btn-outline btn-sm" type="button" data-mbs-provided-del="${idx}">×</button>
+    </div>
+  `).join('') || '<div class="rec-item">None added yet.</div>';
+  $('mbs-provided-props-list').querySelectorAll('[data-mbs-provided]').forEach(inp => {
+    inp.addEventListener('input', () => { mbsDeck.props.providedItems[inp.dataset.mbsProvided][inp.dataset.field] = inp.value; });
+  });
+  $('mbs-provided-props-list').querySelectorAll('[data-mbs-provided-del]').forEach(btn => {
+    btn.addEventListener('click', () => { mbsDeck.props.providedItems.splice(parseInt(btn.dataset.mbsProvidedDel,10), 1); renderMbsProvidedProps(); });
+  });
+  if(!$('mbs-noPropsNote').dataset.wired){
+    $('mbs-noPropsNote').addEventListener('input', (e) => { mbsDeck.props.noPropsNote = e.target.value; });
+    $('mbs-noPropsNote').dataset.wired = '1';
+  }
+}
+function addMbsProvidedProp(){ mbsDeck.props.providedItems.push({ name:'', note:'' }); renderMbsProvidedProps(); }
+
+function renderMbsBuyProps(){
+  $('mbs-buy-props-list').innerHTML = mbsDeck.props.buyItems.map((p, idx) => `
+    <div class="mbs-row">
+      <div class="field"><input type="text" placeholder="Item" value="${esc(p.name||'')}" data-mbs-buy="${idx}" data-field="name"></div>
+      <div class="field"><input type="text" placeholder="Shopee link" value="${esc(p.shopeeLink||'')}" data-mbs-buy="${idx}" data-field="shopeeLink"></div>
+      <div class="field"><input type="text" placeholder="Used in shot" value="${esc(p.usedInShot||'')}" data-mbs-buy="${idx}" data-field="usedInShot"></div>
+      <div class="field" style="max-width:100px;"><input type="number" placeholder="Unit price" value="${p.unitPrice||''}" data-mbs-buy="${idx}" data-field="unitPrice"></div>
+      <div class="field" style="max-width:80px;"><input type="number" placeholder="Qty" value="${p.quantity||''}" data-mbs-buy="${idx}" data-field="quantity"></div>
+      <button class="btn btn-outline btn-sm" type="button" data-mbs-buy-del="${idx}">×</button>
+    </div>
+  `).join('') || '<div class="rec-item">None added yet.</div>';
+  $('mbs-buy-props-list').querySelectorAll('[data-mbs-buy]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const val = (inp.dataset.field === 'unitPrice' || inp.dataset.field === 'quantity') ? (parseFloat(inp.value) || 0) : inp.value;
+      mbsDeck.props.buyItems[inp.dataset.mbsBuy][inp.dataset.field] = val;
+      updateMbsBuyTotal();
+    });
+  });
+  $('mbs-buy-props-list').querySelectorAll('[data-mbs-buy-del]').forEach(btn => {
+    btn.addEventListener('click', () => { mbsDeck.props.buyItems.splice(parseInt(btn.dataset.mbsBuyDel,10), 1); renderMbsBuyProps(); updateMbsBuyTotal(); });
+  });
+  updateMbsBuyTotal();
+}
+function addMbsBuyProp(){ mbsDeck.props.buyItems.push({ name:'', shopeeLink:'', usedInShot:'', unitPrice:0, quantity:1 }); renderMbsBuyProps(); }
+function updateMbsBuyTotal(){
+  const total = mbsDeck.props.buyItems.reduce((sum, p) => sum + (p.unitPrice||0) * (p.quantity||0), 0);
+  $('mbs-buy-total').textContent = 'Rp ' + total.toLocaleString('id-ID');
+}
+
+/* -- 7. Styling Reference per Shot -- */
+function renderMbsStyling(){
+  $('mbs-styling-list').innerHTML = mbsDeck.styling.items.map((s, idx) => `
+    <div class="mbs-repeat-card">
+      <div class="mbs-repeat-head"><b>Styling ${idx+1}</b><button class="btn btn-outline btn-sm" data-mbs-styling-del="${idx}">Remove</button></div>
+      <div class="mbs-row">
+        <div class="field"><label class="f-label">Shot #</label><input type="text" value="${esc(s.shotRef||'')}" data-mbs-styling="${idx}" data-field="shotRef"></div>
+        <div class="field"><label class="f-label">Product name</label><input type="text" value="${esc(s.productName||'')}" data-mbs-styling="${idx}" data-field="productName"></div>
+        <div class="field"><label class="f-label">Background pairing</label><input type="text" value="${esc(s.backgroundUsed||'')}" data-mbs-styling="${idx}" data-field="backgroundUsed"></div>
+      </div>
+      <div class="field"><label class="f-label">Objective</label><input type="text" value="${esc(s.objective||'')}" data-mbs-styling="${idx}" data-field="objective"></div>
+      <div class="field"><label class="f-label">Styling reasoning</label><textarea data-mbs-styling="${idx}" data-field="reasoning" style="min-height:50px;">${esc(s.reasoning||'')}</textarea></div>
+      <div class="field">
+        <label class="f-label">Reference photos</label>
+        <div id="mbs-styling-images-${idx}" class="moodboard-grid" style="margin-top:0;"></div>
+        <input type="file" data-mbs-styling-image-input="${idx}" accept="image/*" multiple style="display:none;">
+        <button class="btn btn-outline btn-sm" type="button" data-mbs-styling-image-btn="${idx}">+ Add reference photo</button>
+      </div>
+    </div>
+  `).join('') || '<div class="rec-item">No styling references yet.</div>';
+
+  mbsDeck.styling.items.forEach((s, idx) => renderMbsImageGrid('mbs-styling-images-' + idx, s.refImages));
+  $('mbs-styling-list').querySelectorAll('[data-mbs-styling]').forEach(inp => {
+    inp.addEventListener('input', () => { mbsDeck.styling.items[inp.dataset.mbsStyling][inp.dataset.field] = inp.value; });
+  });
+  $('mbs-styling-list').querySelectorAll('[data-mbs-styling-del]').forEach(btn => {
+    btn.addEventListener('click', () => { mbsDeck.styling.items.splice(parseInt(btn.dataset.mbsStylingDel,10), 1); renderMbsStyling(); });
+  });
+  $('mbs-styling-list').querySelectorAll('[data-mbs-styling-image-btn]').forEach(btn => {
+    const idx = btn.dataset.mbsStylingImageBtn;
+    btn.addEventListener('click', () => $(`[data-mbs-styling-image-input="${idx}"]`).click());
+  });
+  $('mbs-styling-list').querySelectorAll('[data-mbs-styling-image-input]').forEach(input => {
+    const idx = parseInt(input.dataset.mbsStylingImageInput, 10);
+    input.addEventListener('change', async () => {
+      const files = Array.from(input.files || []);
+      for(const file of files) mbsDeck.styling.items[idx].refImages.push(await readImageAsAsset(file));
+      renderMbsImageGrid('mbs-styling-images-' + idx, mbsDeck.styling.items[idx].refImages);
+    });
+  });
+}
+function addMbsStyling(){ mbsDeck.styling.items.push({ shotRef:'', productName:'', objective:'', backgroundUsed:'', reasoning:'', refImages:[] }); renderMbsStyling(); }
+
+/* -- Preview: one slide per populated section -- */
+function buildMbsPreviewSlides(){
+  collectMbsSimpleFields();
+  const d = mbsDeck;
+  const slides = [];
+  slides.push({ title: d.meta.projectTitle || '(untitled project)', html: `
+    <p class="sub">${esc(d.meta.clientName||'')} · ${esc(String(d.meta.year||''))} · ${esc(d.meta.studioName||'')}</p>
+    ${d.meta.coverImage ? `<img src="data:${d.meta.coverImage.mimeType};base64,${d.meta.coverImage.data}" style="max-width:100%; border-radius:12px; margin-top:12px;">` : ''}
+    ${d.meta.confidentialNote ? `<p class="sub" style="margin-top:10px;">${esc(d.meta.confidentialNote)}</p>` : ''}
+  `});
+  if(d.intention.concept || d.intention.anchorWords.some(Boolean) || d.intention.boundaries){
+    slides.push({ title: 'Core Intention', html: `
+      <p><b>${esc(d.intention.concept||'')}</b></p>
+      ${d.intention.directionTitle ? `<p>${esc(d.intention.directionTitle)}</p>` : ''}
+      <div class="moodboard-tags">${d.intention.anchorWords.filter(Boolean).map(w => `<span class="moodboard-tag">${esc(w)}</span>`).join('')}</div>
+      ${d.intention.boundaries ? `<p class="sub" style="margin-top:10px;">NOT: ${esc(d.intention.boundaries)}</p>` : ''}
+      ${d.intention.directionImage ? `<img src="data:${d.intention.directionImage.mimeType};base64,${d.intention.directionImage.data}" style="max-width:100%; border-radius:12px; margin-top:10px;">` : ''}
+    `});
+  }
+  if(d.whereWhen.locationName || d.whereWhen.date){
+    slides.push({ title: 'Where, When & Rundown', html: `
+      <p>${esc(d.whereWhen.locationName||'')} — ${esc(d.whereWhen.address||'')}</p>
+      <p class="sub">${esc(d.whereWhen.date||'')} · crew ${esc(d.whereWhen.crewStandby||'')} · session ${esc(d.whereWhen.sessionTime||'')}</p>
+      <table class="plan-table"><tbody>${d.whereWhen.rundown.map(r=>`<tr><td>${esc(r.time||'')}</td><td>${esc(r.activity||'')}</td><td>${esc(r.duration||'')}</td></tr>`).join('')}</tbody></table>
+    `});
+  }
+  if(d.shotlist.shots.length) slides.push({ title: 'Product Shot List', html: d.shotlist.shots.map(s => `<p><b>${esc(s.title||'')}</b> (${esc(s.type)}) — ${s.products.map(p=>esc(p.name)).join(', ')}</p>`).join('') });
+  if(d.backgrounds.concepts.length) slides.push({ title: 'Background Used', html: d.backgrounds.concepts.map(c => `<p><b>${esc(c.name||'')}</b> — top: ${esc(c.bgTop||'')}, bottom: ${esc(c.bgBottom||'')}</p>`).join('') });
+  if(d.props.providedItems.length || d.props.buyItems.length) slides.push({ title: 'Props & Background', html: `
+    <p><b>Provided:</b> ${d.props.providedItems.map(p=>esc(p.name)).join(', ') || '—'}</p>
+    <p><b>To buy:</b> ${d.props.buyItems.map(p=>esc(p.name)).join(', ') || '—'}</p>
+  `});
+  if(d.styling.items.length) slides.push({ title: 'Styling Reference per Shot', html: d.styling.items.map(s => `<p><b>${esc(s.productName||'')}</b> — ${esc(s.reasoning||'')}</p>`).join('') });
+  if(d.closing.thankYouNote || d.closing.nextStepsNote) slides.push({ title: 'Closing', html: `<p>${esc(d.closing.thankYouNote||'')}</p><p class="sub">${esc(d.closing.nextStepsNote||'')}</p>` });
+  return slides;
+}
+
+function openMbsPreview(){
+  mbsPreviewSlides = buildMbsPreviewSlides();
+  mbsPreviewIdx = 0;
+  renderMbsPreviewSlide();
+  $('mbs-preview-modal').classList.add('open');
+  $('mbs-preview-overlay').classList.add('open');
+}
+function closeMbsPreview(){
+  $('mbs-preview-modal').classList.remove('open');
+  $('mbs-preview-overlay').classList.remove('open');
+}
+function renderMbsPreviewSlide(){
+  const s = mbsPreviewSlides[mbsPreviewIdx];
+  $('mbs-preview-body').innerHTML = s ? `<h2>${esc(s.title)}</h2>${s.html}` : '<p>Nothing to preview yet — fill in at least one section.</p>';
+  $('mbs-preview-counter').textContent = mbsPreviewSlides.length ? `${mbsPreviewIdx+1} / ${mbsPreviewSlides.length}` : '';
+}
+function mbsPreviewPrev(){ if(mbsPreviewIdx > 0){ mbsPreviewIdx--; renderMbsPreviewSlide(); } }
+function mbsPreviewNext(){ if(mbsPreviewIdx < mbsPreviewSlides.length - 1){ mbsPreviewIdx++; renderMbsPreviewSlide(); } }
+
+/* -- Generate: standalone downloadable HTML deck (this app has no public link hosting, so
+   "Generate Moodboard" produces a file instead of a published URL — state itself is already
+   saved server-side via Save, independent of this). -- */
+function generateMbsDeck(){
+  const slides = buildMbsPreviewSlides();
+  const d = mbsDeck;
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>${esc(d.meta.projectTitle||'Moodboard')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700&family=Inclusive+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Inclusive Sans',sans-serif;background:#121212;color:#F5F5F0;}
+section{min-height:100vh; padding:60px; box-sizing:border-box; border-bottom:1px solid #2a2a2a;}
+h2{font-family:'Fraunces',serif; font-size:28px;}
+.sub{color:#9AA3B2;}
+img{max-width:100%; border-radius:12px;}
+table{border-collapse:collapse; width:100%; margin-top:10px;} td{padding:6px 10px; border-bottom:1px solid #2a2a2a; font-size:13px;}
+.moodboard-tags{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+.moodboard-tag{background:#1e1e1e; padding:4px 10px; border-radius:999px; font-size:12px;}
+</style></head><body>
+${slides.map(s => `<section><h2>${esc(s.title)}</h2>${s.html}</section>`).join('\n')}
+</body></html>`;
+  const blob = new Blob([html], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${(d.meta.projectTitle||'moodboard').replace(/[^a-z0-9]+/gi,'-')}-Moodboard.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 
@@ -1362,200 +1858,6 @@ async function loadDashboard(){
     </div></div>`).join('') || '<div class="rec-item">Belum ada aktivitas.</div>';
 }
 
-// Directory A is a cross-client screen — not tied to whichever client is active in the
-// session — so it tracks its own "which client's detail am I looking at" state separately.
-let dirDetailSlug = null;
-const DRIVE_SERVICE_ACCOUNT_EMAIL = 'wonderland-drive-reader@gen-lang-client-0440538800.iam.gserviceaccount.com';
-
-async function loadDirectoryA(){
-  dirDetailSlug = null;
-  $('dira-list-view').style.display = 'block';
-  $('dira-detail-view').style.display = 'none';
-  await renderDirectoryAClientList();
-}
-
-async function renderDirectoryAClientList(){
-  $('dira-client-list').innerHTML = '<div class="rec-item">Loading…</div>';
-  const clients = await api('/api/directory-a/overview') || [];
-  $('dira-client-list').innerHTML = clients.map(c => `
-    <div class="dira-client-row">
-      <div>
-        <div class="dira-client-name">${esc(c.name)}</div>
-        <div class="dira-client-meta">${c.configured
-          ? (c.fileCount !== null ? `${c.fileCount} file — sync terakhir ${fmtDateTime(c.syncedAt)}` : 'Folder linked, belum pernah di-sync')
-          : 'Belum ada folder Drive terhubung'}</div>
-      </div>
-      <div class="dira-client-actions">
-        <button class="btn btn-accent btn-sm" data-open-detail="${esc(c.slug)}">${c.configured ? 'View details' : 'Link folder'}</button>
-      </div>
-    </div>`).join('') || '<div class="rec-item">Belum ada klien.</div>';
-  $('dira-client-list').querySelectorAll('[data-open-detail]').forEach(btn => {
-    btn.addEventListener('click', () => openDirectoryADetail(btn.dataset.openDetail));
-  });
-}
-
-function closeDirectoryADetail(){
-  loadDirectoryA();
-}
-
-async function openDirectoryADetail(slug){
-  dirDetailSlug = slug;
-  $('dira-list-view').style.display = 'none';
-  $('dira-detail-view').style.display = 'block';
-  $('dira-link-help').textContent = `Belum bisa diakses? Share folder itu dulu ke ${DRIVE_SERVICE_ACCOUNT_EMAIL} (Viewer), baru link lagi.`;
-  $('dira-link-input').value = '';
-  $('dira-link-status').textContent = '';
-
-  const data = await api('/api/directory-a/' + slug);
-  if(!data) return;
-  $('dira-not-configured').style.display = data.configured ? 'none' : 'block';
-  $('btn-dira-sync').style.display = data.configured ? 'inline-block' : 'none';
-  renderDirectoryA(data.manifest);
-  if(data.syncStatus === 'syncing'){
-    $('btn-dira-sync').disabled = true;
-    $('dira-status').textContent = 'Syncing dari Google Drive… bisa makan waktu 1-2 menit kalau arsipnya besar.';
-    pollDirectoryASync();
-  } else if(data.syncStatus === 'error'){
-    $('dira-status').textContent = 'Sync gagal: ' + (data.syncError || 'unknown error');
-  }
-}
-
-async function pollDirectoryASync(){
-  if(!dirDetailSlug) return;
-  const data = await api('/api/directory-a/' + dirDetailSlug);
-  if(!data) return;
-  if(data.syncStatus === 'syncing'){
-    setTimeout(pollDirectoryASync, 4000);
-    return;
-  }
-  $('btn-dira-sync').disabled = false;
-  if(data.syncStatus === 'error'){
-    $('dira-status').textContent = 'Sync gagal: ' + (data.syncError || 'unknown error');
-  } else {
-    renderDirectoryA(data.manifest);
-  }
-}
-
-function renderDirectoryA(manifest){
-  if(!manifest){
-    $('dira-status').textContent = 'Belum pernah di-sync.';
-    $('dira-groups').innerHTML = '';
-    return;
-  }
-  $('dira-status').textContent = `Terakhir sync ${fmtDateTime(manifest.syncedAt)} — ${manifest.files.length} file${manifest.truncated ? ' (dipotong, arsipnya lebih besar dari batas)' : ''}.`;
-
-  const byFolder = {};
-  manifest.files.forEach(f => {
-    const key = f.path || '(root)';
-    (byFolder[key] = byFolder[key] || []).push(f);
-  });
-
-  $('dira-groups').innerHTML = Object.entries(byFolder).map(([folder, files]) => `
-    <div class="dira-folder">
-      <h3>${esc(folder)} <span class="dira-count">(${files.length})</span></h3>
-      <div class="dira-grid">
-        ${files.map(f => f.hasThumbnail
-          ? `<a class="dira-thumb" href="${esc(f.webViewLink)}" target="_blank" title="${esc(f.name)}${f.isRawArchiveSummary ? ' — ' + f.fileCount + ' files, not indexed individually' : ''}"><img src="${withBase('/media/directory-a/' + dirDetailSlug + '/' + f.id + '.jpg')}" loading="lazy">${f.isRawArchiveSummary ? `<span class="dira-thumb-badge">${f.fileCount}</span>` : ''}</a>`
-          : `<a class="dira-thumb no-thumb" href="${esc(f.webViewLink)}" target="_blank" title="${esc(f.name)}">${esc(f.name)}${f.isRawArchiveSummary ? '<br>' + f.fileCount + ' files' : ''}</a>`
-        ).join('')}
-      </div>
-    </div>`).join('');
-}
-
-async function syncDirectoryA(){
-  if(!dirDetailSlug) return;
-  const btn = $('btn-dira-sync');
-  btn.disabled = true;
-  $('dira-status').textContent = 'Syncing dari Google Drive… bisa makan waktu 1-2 menit kalau arsipnya besar.';
-  try {
-    const res = await api('/api/directory-a/' + dirDetailSlug + '/sync', { method:'POST' });
-    if(res && res.ok){
-      pollDirectoryASync(); // re-enables the button itself once the background sync finishes
-    } else {
-      $('dira-status').textContent = (res && res.error) || 'Sync gagal.';
-      btn.disabled = false;
-    }
-  } catch(e){
-    $('dira-status').textContent = 'Could not reach the server.';
-    btn.disabled = false;
-  }
-}
-
-async function linkDriveFolder(){
-  if(!dirDetailSlug) return;
-  const url = $('dira-link-input').value.trim();
-  if(!url) return;
-  $('dira-link-status').textContent = 'Checking access…';
-  const res = await api('/api/directory-a/' + dirDetailSlug + '/link', { method:'POST', body: JSON.stringify({ folderUrl: url }) });
-  if(res && res.ok){
-    await openDirectoryADetail(dirDetailSlug);
-  } else {
-    $('dira-link-status').textContent = (res && res.error) || 'Gagal link folder.';
-  }
-}
-
-/* ---------- Canva (Brand Template autofill — connect account, map templates, send briefs) ---------- */
-let canvaTemplateOptions = [];
-
-async function loadCanvaPage(){
-  const status = await api('/api/canva/status');
-  if(!status){ return; }
-
-  $('canva-not-configured').style.display = status.configured ? 'none' : 'block';
-  $('canva-connect-row').style.display = (status.configured && !status.connected) ? 'flex' : 'none';
-  $('canva-connected-row').style.display = (status.configured && status.connected) ? 'flex' : 'none';
-  $('canva-connected-name').textContent = status.connectedName ? ` as ${status.connectedName}` : '';
-  $('canva-mapping-card').style.display = status.connected ? 'block' : 'none';
-
-  if(status.connected){
-    await loadCanvaTemplateOptions();
-    ['briefCover','feed','story'].forEach(key => {
-      $('canva-map-' + key).value = (status.templates && status.templates[key]) || '';
-    });
-  }
-}
-
-async function loadCanvaTemplateOptions(){
-  const res = await api('/api/canva/brand-templates');
-  canvaTemplateOptions = (res && res.templates) || [];
-  const optionsHtml = '<option value="">— pick a template —</option>' +
-    canvaTemplateOptions.map(t => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('');
-  ['briefCover','feed','story'].forEach(key => { $('canva-map-' + key).innerHTML = optionsHtml; });
-  if(!res || !res.ok) $('canva-mapping-status').textContent = (res && res.error) || 'Could not load Brand Templates.';
-}
-
-async function saveCanvaMapping(){
-  const templates = {
-    briefCover: $('canva-map-briefCover').value,
-    feed: $('canva-map-feed').value,
-    story: $('canva-map-story').value
-  };
-  $('canva-mapping-status').textContent = 'Saving…';
-  const res = await api('/api/canva/template-mapping', { method:'POST', body: JSON.stringify({ templates }) });
-  $('canva-mapping-status').textContent = (res && res.ok) ? 'Saved ✓' : ((res && res.error) || 'Could not save.');
-}
-
-async function disconnectCanva(){
-  if(!confirm('Disconnect this Canva account?')) return;
-  await api('/api/canva/disconnect', { method:'POST' });
-  loadCanvaPage();
-}
-
-async function createNewClient(){
-  const input = $('dira-new-client-name');
-  const name = input.value.trim();
-  if(!name) return;
-  $('dira-create-status').textContent = 'Creating…';
-  const res = await api('/api/clients', { method:'POST', body: JSON.stringify({ name }) });
-  if(res && res.ok){
-    input.value = '';
-    $('dira-create-status').textContent = '';
-    $('dira-add-client-form').style.display = 'none';
-    renderDirectoryAClientList();
-  } else {
-    $('dira-create-status').textContent = (res && res.error) || 'Gagal bikin client.';
-  }
-}
 
 // Competitor tracking now lives directly on the Competitor Dashboard (Analytics page) instead of
 // its own cross-client tab — this instance is single-client (Buranchi), so a client-picker landing
@@ -2237,331 +2539,7 @@ async function saveAgentBehavior(){
   if(res && res.ok) AGENT_KEYS.forEach(key => renderRulesList(res[key] || [], 'ab-extra-' + key));
 }
 
-/* ---------- calendar & post previews ---------- */
-function agentBadge(p){
-  const by = p.generatedBy || 'claude'; // plans pasted before this field existed were all Claude-chat-generated
-  const m = AGENT_BADGE_MAP[by] || AGENT_BADGE_MAP.claude;
-  return `<span class="agent-badge ${m.cls}">${m.label}</span>`;
-}
-
-function genDateOf(p){ return p.createdAt ? p.createdAt.slice(0,10) : null; }
-
-function populateGenDateFilters(){
-  const dates = [...new Set(posts.map(genDateOf).filter(Boolean))].sort().reverse();
-  ['cal-date-filter','prev-date-filter'].forEach(id => {
-    const sel = $(id);
-    if(!sel) return;
-    const current = sel.value;
-    sel.innerHTML = '<option value="all">All dates</option>' + dates.map(d =>
-      `<option value="${d}">${fmtDate(d)}</option>`
-    ).join('');
-    if(dates.includes(current)) sel.value = current;
-  });
-}
-
-function applyPlanFilters(agentFilterId, dateFilterId){
-  const agent = $(agentFilterId).value;
-  const date = $(dateFilterId).value;
-  return posts.filter(p => {
-    if(agent !== 'all' && (p.generatedBy || 'claude') !== agent) return false;
-    if(date !== 'all' && genDateOf(p) !== date) return false;
-    return true;
-  });
-}
-
-// The scheduled date on a post is a loose string ("Aug 8" or an ISO "2026-08-20"),
-// never guaranteed to carry a year, so the grid has to reconstruct a real Date from it —
-// falling back to the generation year (createdAt) when the string itself has none.
-function parsePostDate(p){
-  if(!p.date) return null;
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.date.trim());
-  if(iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
-  const year = p.createdAt ? new Date(p.createdAt).getFullYear() : new Date().getFullYear();
-  const guess = new Date(`${p.date} ${year}`);
-  return isNaN(guess.getTime()) ? null : guess;
-}
-
-function calDateKey(d){
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-let calGridMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-let calViewMode = localStorage.getItem('compass-cal-view') || 'grid';
-
-function renderCalendarGrid(calPosts){
-  const byDate = {};
-  calPosts.forEach(p => {
-    const d = parsePostDate(p);
-    if(!d) return;
-    const key = calDateKey(d);
-    (byDate[key] = byDate[key] || []).push(p);
-  });
-
-  const monthStart = new Date(calGridMonth.getFullYear(), calGridMonth.getMonth(), 1);
-  $('cal-grid-month-label').textContent = monthStart.toLocaleDateString('en-US', { month:'long', year:'numeric' });
-
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(gridStart.getDate() - gridStart.getDay());
-
-  const todayKey = calDateKey(new Date());
-  let html = '';
-  for(let i = 0; i < 42; i++){
-    const cellDate = new Date(gridStart);
-    cellDate.setDate(gridStart.getDate() + i);
-    const key = calDateKey(cellDate);
-    const inMonth = cellDate.getMonth() === monthStart.getMonth();
-    const isToday = key === todayKey;
-    const dayPosts = byDate[key] || [];
-    const shown = dayPosts.slice(0, 3);
-    const extra = dayPosts.length - shown.length;
-    html += `<div class="cal-cell ${inMonth ? '' : 'cal-cell-out'} ${isToday ? 'cal-cell-today' : ''}">
-      <div class="cal-cell-date">${cellDate.getDate()}${isToday ? '<span class="cal-today-dot"></span>' : ''}</div>
-      <div class="cal-cell-posts">
-        ${shown.map(p => `<div class="cal-chip ${(AGENT_BADGE_MAP[p.generatedBy||'claude']||AGENT_BADGE_MAP.claude).cls}" title="${esc(p.headline||'')}" onclick="openDetail('${p.id}')" style="cursor:pointer;">${esc(p.headline || '(untitled)')}</div>`).join('')}
-        ${extra > 0 ? `<div class="cal-chip-more">+${extra} more</div>` : ''}
-      </div>
-    </div>`;
-  }
-  $('cal-grid').innerHTML = html;
-
-  const todayPosts = byDate[todayKey] || [];
-  const banner = $('cal-today-banner');
-  if(todayPosts.length){
-    banner.style.display = 'flex';
-    banner.innerHTML = `<span class="cal-banner-icon">🔔</span><span>${todayPosts.length} post${todayPosts.length > 1 ? 's' : ''} due today — ${todayPosts.map(p => esc(p.headline || '(untitled)')).join(', ')}</span>`;
-  } else {
-    banner.style.display = 'none';
-  }
-}
-
-function setCalView(mode){
-  calViewMode = mode;
-  localStorage.setItem('compass-cal-view', mode);
-  $('cal-view-grid').classList.toggle('active', mode === 'grid');
-  $('cal-view-list').classList.toggle('active', mode === 'list');
-  $('cal-grid-panel').style.display = mode === 'grid' ? 'block' : 'none';
-  $('cal-list-panel').style.display = mode === 'list' ? 'block' : 'none';
-}
-
-function mockupCard(p){
-  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
-  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
-  const headlinePos = p.headlinePos || 'bottom';
-  // In the compact thumbnail, force the badge to the corner opposite the headline so long headlines never collide with it.
-  // The stored badgePos is still honored as-is in the full detail view / export.
-  const thumbBadgePos = p.badge ? (headlinePos === 'top' ? 'bottom' : 'top') : '';
-  const badgeHtml = p.badge ? `<div class="badge ${thumbBadgePos}">${esc(p.badge)}</div>` : '';
-  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
-  const photoInner = p.frame === 'yellow-frame'
-    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
-    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
-  return `
-  <div class="post-card" onclick="openDetail('${p.id}')">
-    <div class="mockup ${p.base} ${ratio}">
-      <div class="${frameClass}">${photoInner}</div>
-      ${badgeHtml}
-      <div class="headline-block pos-${headlinePos}">
-        <div class="${hClass}">${esc(p.headline)}</div>
-        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
-      </div>
-    </div>
-    <div class="meta">
-      <div class="kicker">${esc(p.date)} · ${p.format}</div>
-      <div class="cap">${esc(p.caption||'').slice(0,120)}</div>
-      <div class="row-actions">
-        <button onclick="event.stopPropagation(); openDetail('${p.id}')">View detail</button>
-        <button onclick="event.stopPropagation(); removePost('${p.id}')">Remove</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-async function removePost(id){
-  await api('/api/posts/' + id, { method:'DELETE' });
-  posts = posts.filter(p => p.id !== id);
-  renderCalendarAndPreviews();
-}
-
-// Replaces the calendar/preview slice of the old monolithic render() — the KPI strip it used to
-// also refresh is gone (Content Plan's overhauled AI-generate form doesn't have one), so this
-// only touches what Calendar/Post Previews actually need.
-function renderCalendarAndPreviews(){
-  $('empty-state').style.display = posts.length ? 'none' : 'block';
-
-  populateGenDateFilters();
-
-  const calPosts = applyPlanFilters('cal-agent-filter', 'cal-date-filter');
-  $('cal-body').innerHTML = calPosts.map((p,i) => `
-    <tr onclick="openDetail('${p.id}')" style="cursor:pointer;">
-      <td>#${String(i+1).padStart(2,'0')}</td>
-      <td>${esc(p.date)}</td>
-      <td>${esc(p.day)}</td>
-      <td><span class="fmt-pill ${p.format}">${p.format}</span>${p.event ? '<span class="event-flag">event</span>' : ''}</td>
-      <td>${esc(p.headline)}</td>
-      <td>${esc(p.persona||'')}</td>
-      <td>${esc(p.priority||'')}</td>
-      <td>${agentBadge(p)}</td>
-      <td class="row-actions"><button onclick="event.stopPropagation(); removePost('${p.id}')">Remove</button></td>
-    </tr>`).join('');
-  renderCalendarGrid(calPosts);
-
-  const prevPosts = applyPlanFilters('prev-agent-filter', 'prev-date-filter');
-  $('cards').innerHTML = prevPosts.map(p => mockupCard(p)).join('');
-}
-
 /* ---------- post detail modal ---------- */
-async function openDetail(id){
-  let p = posts.find(x => x.id === id);
-  if(!p) return;
-
-  // Every post should show a benchmark — auto-pick and save one the first time this post is opened,
-  // instead of making the user hunt for a match themselves.
-  if(!p.referencePost || !p.directoryARef){
-    const guess = p.referencePost ? null : autoResolveReferenceForPost(p, usedReferenceUrls());
-    const dirGuess = p.directoryARef ? null : autoResolveDirectoryAReference(p, usedDirectoryARefIds());
-    if(guess || dirGuess){
-      const body = {};
-      if(guess) body.referencePost = guess;
-      if(dirGuess) body.directoryARef = dirGuess;
-      const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify(body) });
-      if(updated){
-        const idx = posts.findIndex(x => x.id === id);
-        if(idx > -1) posts[idx] = updated;
-        p = updated;
-      }
-    }
-  }
-
-  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
-  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
-  const detailHeadlinePos = p.headlinePos || 'bottom';
-  // Same collision-avoidance as the thumbnail cards: force the badge to the corner opposite
-  // the headline so long copy never overlaps it, regardless of the stored badgePos.
-  const detailBadgePos = p.badge ? (detailHeadlinePos === 'top' ? 'bottom' : 'top') : '';
-  const badgeHtml = p.badge ? `<div class="badge ${detailBadgePos}">${esc(p.badge)}</div>` : '';
-  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
-  const photoInner = p.frame === 'yellow-frame'
-    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
-    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
-  const briefHtml = (p.brief && p.brief.length) ? `<ul class="detail-list">${p.brief.map(b=>`<li>${esc(b)}</li>`).join('')}</ul>` : `<div class="detail-empty">No design brief bullets on this post.</div>`;
-
-  const ourMockupHtml = `
-    <div class="mockup ${p.base} ${ratio}" style="width:100%; max-width:320px;">
-      <div class="${frameClass}">${photoInner}</div>
-      ${badgeHtml}
-      <div class="headline-block pos-${detailHeadlinePos}">
-        <div class="${hClass}">${esc(p.headline)}</div>
-        ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
-      </div>
-    </div>`;
-
-  // The attached reference is a frozen snapshot (so caption/category/stats stay stable), but
-  // Instagram's image URLs expire within hours — always try the freshest URL for the same post
-  // from whatever's currently loaded, and only fall back to the frozen one if it's gone from the data.
-  const rawRef = p.referencePost;
-  const fresh = rawRef && COMPETITOR_POSTS.find(x => x.url === rawRef.url);
-  const ref = rawRef ? Object.assign({}, rawRef, fresh ? { display_url: fresh.display_url } : {}) : null;
-  const withPhoto = [...COMPETITOR_POSTS].filter(x => x.display_url).sort((a,b) => (b.engagement_rate_pct||0) - (a.engagement_rate_pct||0));
-  const pickerOptions = '<option value="">Choose a competitor post…</option>' + withPhoto.map(x =>
-    `<option value="${esc(x.url)}">${esc(x.brand_name)} — ${esc(x.category)} — ${fmtPct(x.engagement_rate_pct||0)}</option>`
-  ).join('');
-
-  const compareHtml = `
-    ${ref ? `<div style="text-align:right; margin-bottom:10px;"><button class="btn btn-outline btn-sm" onclick="openLightbox('${p.id}')">⤢ View full size, side by side</button></div>` : ''}
-    <div class="compare-grid">
-      <div class="compare-col">
-        <div class="compare-label ours">Our Recommendation</div>
-        <div class="detail-mockup-wrap">${ourMockupHtml}</div>
-      </div>
-      <div class="compare-col">
-        <div class="compare-label theirs">Competitor Reference</div>
-        ${ref ? `
-        <div class="compare-ref-photo">
-          ${ref.display_url
-            ? `<img src="${mediaUrl(ref.display_url)}" alt="${esc(ref.brand_name)} reference post" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'compare-ref-noimg',textContent:'Image expired — Instagram links go stale after a few hours. Rescrape to refresh, or open the original post below.'}))">`
-            : `<div class="compare-ref-noimg">No image captured</div>`}
-        </div>
-        <div class="compare-ref-meta">
-          <span class="competitor-badge" style="background:${(ACCOUNT_COLORS[ref.account]||'#726654')}22;color:${ACCOUNT_COLORS[ref.account]||'#726654'}">${esc(ref.brand_name)}</span>
-          <span class="chip" style="cursor:default;">${esc(ref.category)}</span>
-          <span class="chip" style="cursor:default;">${fmtPct(ref.engagement_rate_pct||0)} eng.</span>
-        </div>
-        <p class="compare-ref-caption">${esc(ref.caption_preview)}</p>
-        <a class="post-link" href="${ref.url}" target="_blank" rel="noopener">Open original post →</a>
-        <button class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="changeDetailReference('${p.id}')">Change reference</button>
-        ` : `
-        <div class="compare-ref-empty">
-          <p>No competitor benchmark attached to this post yet.</p>
-          <select id="detail-ref-picker">${pickerOptions}</select>
-          <button class="btn btn-accent btn-sm" style="margin-top:8px;" onclick="attachDetailReference('${p.id}')">Attach reference</button>
-        </div>`}
-      </div>
-    </div>`;
-
-  const directoryARefHtml = p.directoryARef ? `
-    <div class="dira-ref-block">
-      <div class="dira-ref-label">From your own archive (Directory A)</div>
-      <a class="dira-ref-photo" href="${esc(p.directoryARef.webViewLink)}" target="_blank" title="${esc(p.directoryARef.name)}">
-        <img src="${esc(p.directoryARef.thumbnailUrl)}" loading="lazy">
-      </a>
-      <div class="dira-ref-name">${esc(p.directoryARef.name)}</div>
-      <div class="dira-ref-path">${esc(p.directoryARef.path)}</div>
-    </div>` : '';
-
-  const specHtml = `
-    <div class="detail-spec">
-      <div class="detail-tags">
-        <span class="fmt-pill ${p.format}">${p.format === 'feed' ? 'Feed · 4:5' : 'Story · 9:16'}</span>
-        ${p.event ? '<span class="event-flag">event-arm</span>' : ''}
-        <span class="chip" style="cursor:default;">${esc(p.date)} · ${esc(p.day||'')}</span>
-      </div>
-      <div class="detail-row"><div class="detail-lab">Headline</div><div class="detail-val serif-val">${esc(p.headline)}</div></div>
-      ${p.sub ? `<div class="detail-row"><div class="detail-lab">Sub-headline</div><div class="detail-val">${esc(p.sub)}</div></div>` : ''}
-      <div class="detail-row"><div class="detail-lab">Persona</div><div class="detail-val">${esc(p.persona||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">Business priority</div><div class="detail-val">${esc(p.priority||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">Photo direction</div><div class="detail-val">${esc(p.photo||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">Design brief</div>${briefHtml}</div>
-      <div class="detail-row"><div class="detail-lab">Caption</div><div class="detail-val caption-box">${esc(p.caption||'—')}</div></div>
-      <div class="detail-row"><div class="detail-lab">CTA / data capture</div><div class="detail-val cta-box">${esc(p.cta||'—')}</div></div>
-    </div>`;
-
-  $('detail-body').innerHTML = `
-    <div class="detail-grid has-compare">
-      <details class="detail-compare-collapse">
-        <summary>Mockup vs. competitor reference</summary>
-        ${compareHtml}
-      </details>
-      <div class="detail-content-row ${p.directoryARef ? '' : 'no-dira'}">
-        ${specHtml}
-        ${directoryARefHtml}
-      </div>
-    </div>`;
-  $('detail-modal').classList.add('open');
-  $('detail-overlay').classList.add('open');
-}
-
-async function attachDetailReference(id){
-  const picker = $('detail-ref-picker');
-  const url = picker ? picker.value : '';
-  if(!url){ alert('Pick a competitor post first.'); return; }
-  const referencePost = resolveReferencePost(url);
-  const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify({ referencePost }) });
-  if(updated){
-    const idx = posts.findIndex(p => p.id === id);
-    if(idx > -1) posts[idx] = updated;
-    openDetail(id);
-  }
-}
-
-async function changeDetailReference(id){
-  const updated = await api('/api/posts/' + id, { method: 'PUT', body: JSON.stringify({ referencePost: null }) });
-  if(updated){
-    const idx = posts.findIndex(p => p.id === id);
-    if(idx > -1) posts[idx] = updated;
-    openDetail(id);
-  }
-}
-
 function closeDetail(){
   $('detail-modal').classList.remove('open');
   $('detail-overlay').classList.remove('open');
@@ -2570,50 +2548,6 @@ function closeDetail(){
 // Large side-by-side view for handing off to a designer — real Instagram export dimensions on
 // our mockup, native resolution on the competitor photo. Opens as an overlay inside the same
 // page (not a new tab), so the sidebar/topbar and login session stay exactly as they were.
-function openLightbox(id){
-  const p = posts.find(x => x.id === id);
-  if(!p || !p.referencePost) return;
-  const fresh = COMPETITOR_POSTS.find(x => x.url === p.referencePost.url);
-  const ref = Object.assign({}, p.referencePost, fresh ? { display_url: fresh.display_url } : {});
-  const specDims = p.format === 'feed' ? '1080 × 1350px (4:5)' : '1080 × 1920px (9:16)';
-  const hClass = p.headlineType === 'script' ? 'h script' : (p.headlineType === 'sans' ? 'h sans' : 'h');
-  const detailHeadlinePos = p.headlinePos || 'bottom';
-  const detailBadgePos = p.badge ? (detailHeadlinePos === 'top' ? 'bottom' : 'top') : '';
-  const badgeHtml = p.badge ? `<div class="badge ${detailBadgePos}">${esc(p.badge)}</div>` : '';
-  const frameClass = p.frame === 'yellow-frame' ? 'photo-card yellow-frame' : 'photo-card';
-  const photoInner = p.frame === 'yellow-frame'
-    ? `<div class="photo-inner" style="border:4px solid var(--b-yellow);"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`
-    : `<div class="photo-inner"><span>${esc(p.photo||'PHOTO DIRECTION')}</span></div>`;
-  const ratio = p.format === 'feed' ? 'ratio-feed' : 'ratio-story';
-
-  $('lightbox-body').innerHTML = `
-    <div class="lightbox-grid">
-      <div class="lightbox-col">
-        <div class="compare-label ours">Our Recommendation</div>
-        <div class="lightbox-dims">${specDims} — export size for the designer</div>
-        <div class="mockup ${p.base} ${ratio} lightbox-mockup">
-          <div class="${frameClass}">${photoInner}</div>
-          ${badgeHtml}
-          <div class="headline-block pos-${detailHeadlinePos}">
-            <div class="${hClass}">${esc(p.headline)}</div>
-            ${p.sub ? `<div class="s">${esc(p.sub)}</div>` : ''}
-          </div>
-        </div>
-      </div>
-      <div class="lightbox-col">
-        <div class="compare-label theirs">Competitor Reference — ${esc(ref.brand_name)}</div>
-        <div class="lightbox-dims" id="lightbox-ref-dims">Loading dimensions…</div>
-        ${ref.display_url
-          ? `<img class="lightbox-ref-img" src="${mediaUrl(ref.display_url)}" alt="${esc(ref.brand_name)} reference post"
-               onload="document.getElementById('lightbox-ref-dims').textContent = this.naturalWidth + ' × ' + this.naturalHeight + 'px (native)'"
-               onerror="document.getElementById('lightbox-ref-dims').textContent='Image unavailable'; this.replaceWith(Object.assign(document.createElement('div'),{className:'compare-ref-noimg',textContent:'Image expired — rescrape to refresh.'}))">`
-          : `<div class="compare-ref-noimg">No image captured</div>`}
-      </div>
-    </div>`;
-  $('lightbox-modal').classList.add('open');
-  $('lightbox-overlay').classList.add('open');
-}
-
 function closeLightbox(){
   $('lightbox-modal').classList.remove('open');
   $('lightbox-overlay').classList.remove('open');

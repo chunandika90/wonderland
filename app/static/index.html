@@ -18,7 +18,7 @@
 <div class="app-shell">
   <div class="overlay" id="sidebar-overlay"></div>
   <aside class="sidebar" id="sidebar">
-    <div class="brand">wonderland</div>
+    <div class="brand"><img src="brand/sakara-mark-primary.png" alt="" class="brand-mark">wonderland</div>
     <button class="org-badge" id="org-name-sidebar-wrap" title="Switch client"><span id="org-name">…</span> <span class="client-switch-hint">⇄</span></button>
     <nav>
       <div class="nav-group" data-group="overview">
@@ -52,11 +52,7 @@
         <div class="nav-group-label"><span>Creative Intelligence</span><svg class="nav-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
         <div class="nav-group-body">
           <a href="#creativechat" data-nav="creativechat" data-page="creativechat">Creative Chat</a>
-          <a href="#directorya" data-nav="directorya" data-page="directorya">Directory A</a>
-          <a href="#canva" data-nav="canva" data-page="canva">Canva</a>
           <a href="#agentbehavior" data-nav="agentbehavior" data-page="agentbehavior">Agent Behavior &amp; Guardrails</a>
-          <a href="#calendar" data-nav="calendar" data-page="calendar">Calendar</a>
-          <a href="#previews" data-nav="previews" data-page="previews">Post previews</a>
           <a href="#history" data-nav="history" data-page="history">Usage history</a>
         </div>
       </div>
@@ -66,6 +62,7 @@
         <div class="nav-group-body">
           <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="brand-context">Brand Context</a>
           <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="brand-voice">Brand Voice</a>
+          <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="brand-visual-identity">Brand Visual Identity</a>
           <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="icp">Ideal Customer Profile</a>
           <a href="#masterconfig" data-nav="masterconfig" data-page="masterconfig" data-config-id="compass-assistant">Wonderland Assistant Instructions</a>
         </div>
@@ -391,45 +388,197 @@
       </section>
 
       <section class="section page-view" id="moodboard" data-page="moodboard">
-        <div class="section-head">
-          <h2>Moodboard</h2>
-          <p class="sub">Chat with Claude, then paste the moodboard here.</p>
-        </div>
-
-        <div class="card how-card">
-          <div class="section-head" style="margin-bottom:14px;">
-            <span class="agent-badge agent-claude" style="margin-bottom:8px; display:inline-block;">CLAUDE — CHAT + COPY-PASTE</span>
-          </div>
-          <div class="how-steps">
-            <div class="how-step"><span class="how-num">1</span><div><b>Chat with Claude</b> in this project, using the Wonderland assistant instructions. Ask for a moodboard — visual direction, color palette, and reference mood for a campaign or theme.</div></div>
-            <div class="how-step"><span class="how-num">2</span><div><b>Claude writes</b> a title, description, color palette, and mood tags for each board item, on-voice and checked against brand rules, then gives you a code block.</div></div>
-            <div class="how-step"><span class="how-num">3</span><div><b>Paste that code block below, or attach the .md file</b> — Wonderland turns it into a visual moodboard.</div></div>
-          </div>
-          <div class="how-example">Try asking: <em>"Buatkan moodboard untuk promo pilates minggu depan, nuansa hangat dan editorial"</em></div>
-          <div class="paste-block" style="margin-top:18px;">
-            <label class="f-label">Paste a Wonderland moodboard (items array)</label>
-            <textarea id="mb-paste-box" placeholder="Paste the ```js items array from a Wonderland chat session here..."></textarea>
-            <div class="field" style="margin-top:10px;">
-              <label class="f-label">…or attach a .md file</label>
-              <input type="file" id="mb-paste-file" accept=".md,.markdown,.txt">
+        <div id="mbs-list-view">
+          <div class="section-head" style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
+            <div>
+              <h2>Moodboard Studio</h2>
+              <p class="sub">The full Wonder-team deck editor — cover, direction, shotlist, backgrounds, props, styling, and booking availability.</p>
             </div>
-            <button class="btn btn-accent" id="btn-mb-paste" style="width:100%; margin-top:10px; padding:11px;">Load pasted moodboard</button>
+            <button class="btn btn-accent" id="btn-mbs-new">+ New moodboard</button>
+          </div>
+          <div id="mbs-deck-list"></div>
+          <div class="empty" id="mbs-deck-empty" style="display:none;">
+            <div class="big">No moodboards yet</div>
+            <div>Create one to start building a deck.</div>
           </div>
         </div>
 
-        <div class="section-head" style="margin-top:26px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
-          <div>
-            <h2>Board</h2>
-            <p class="sub">Everything loaded into this client's moodboard.</p>
+        <div id="mbs-editor-view" style="display:none;">
+          <div class="analytics-toolbar" style="margin-bottom:8px;">
+            <button class="btn btn-outline btn-sm" id="btn-mbs-back">← Back to moodboards</button>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-outline btn-sm" id="btn-mbs-preview">Preview</button>
+              <button class="btn btn-accent btn-sm" id="btn-mbs-generate">Generate Moodboard</button>
+            </div>
           </div>
-          <button class="btn btn-outline btn-sm" id="btn-mb-clear">Clear moodboard</button>
-        </div>
-        <div id="moodboard-grid" class="moodboard-grid"></div>
-        <div class="empty" id="moodboard-empty" style="display:none;">
-          <div class="big">No moodboard yet</div>
-          <div>Paste one above, or ask Claude for a moodboard in chat.</div>
+          <span id="mbs-save-status" class="rescrape-status"></span>
+
+          <details class="mbs-section" open>
+            <summary>1. Cover &amp; Project Identity</summary>
+            <div class="mbs-section-body">
+              <div style="display:flex; gap:14px;">
+                <div class="field" style="flex:1;"><label class="f-label">Client name</label><input type="text" id="mbs-clientName"></div>
+                <div class="field" style="flex:1;"><label class="f-label">Project / deck title</label><input type="text" id="mbs-projectTitle"></div>
+              </div>
+              <div style="display:flex; gap:14px;">
+                <div class="field" style="flex:1;"><label class="f-label">Year</label><input type="number" id="mbs-year"></div>
+                <div class="field" style="flex:1;"><label class="f-label">Studio name</label><input type="text" id="mbs-studioName" placeholder="e.g. Sakara"></div>
+              </div>
+              <div class="field"><label class="f-label">Confidentiality footer note</label><input type="text" id="mbs-confidentialNote" placeholder="e.g. Confidential — for internal review only"></div>
+              <div class="field">
+                <label class="f-label">Cover photo</label>
+                <div id="mbs-coverImage-preview" class="moodboard-grid" style="margin-top:0;"></div>
+                <input type="file" id="mbs-coverImage-input" accept="image/*" style="display:none;">
+                <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-coverImage">+ Add cover photo</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>2. Defining the Core Intention</summary>
+            <div class="mbs-section-body">
+              <div class="field"><label class="f-label">Concept summary (one line)</label><input type="text" id="mbs-concept"></div>
+              <div class="field"><label class="f-label">Photography direction title</label><input type="text" id="mbs-directionTitle"></div>
+              <div style="display:flex; gap:14px;">
+                <div class="field" style="flex:1;"><label class="f-label">Lighting</label><textarea id="mbs-lighting" style="min-height:50px;"></textarea></div>
+                <div class="field" style="flex:1;"><label class="f-label">Vibe</label><textarea id="mbs-vibe" style="min-height:50px;"></textarea></div>
+                <div class="field" style="flex:1;"><label class="f-label">Focus</label><textarea id="mbs-focus" style="min-height:50px;"></textarea></div>
+              </div>
+              <div class="field"><label class="f-label">What the client likes</label><textarea id="mbs-clientLikes" style="min-height:50px;"></textarea></div>
+              <div class="field"><label class="f-label">Evaluation from a previous shoot</label><textarea id="mbs-clientEvaluation" style="min-height:50px;"></textarea></div>
+              <div class="field"><label class="f-label">Team discernment</label><textarea id="mbs-teamDiscernment" style="min-height:50px;"></textarea></div>
+              <div class="field">
+                <label class="f-label">Three anchor words</label>
+                <div style="display:flex; gap:10px;">
+                  <input type="text" id="mbs-anchor-0" placeholder="Word 1">
+                  <input type="text" id="mbs-anchor-1" placeholder="Word 2">
+                  <input type="text" id="mbs-anchor-2" placeholder="Word 3">
+                </div>
+              </div>
+              <div class="field"><label class="f-label">Style boundaries — "this aesthetic is NOT…"</label><textarea id="mbs-boundaries" style="min-height:50px;"></textarea></div>
+              <div class="field">
+                <label class="f-label">Example lighting-direction photo</label>
+                <div id="mbs-directionImage-preview" class="moodboard-grid" style="margin-top:0;"></div>
+                <input type="file" id="mbs-directionImage-input" accept="image/*" style="display:none;">
+                <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-directionImage">+ Add reference photo</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>3. Where, When &amp; Rundown</summary>
+            <div class="mbs-section-body">
+              <div style="display:flex; gap:14px;">
+                <div class="field" style="flex:1;"><label class="f-label">Location name</label><input type="text" id="mbs-locationName"></div>
+                <div class="field" style="flex:1;"><label class="f-label">Address</label><input type="text" id="mbs-address"></div>
+              </div>
+              <div style="display:flex; gap:14px;">
+                <div class="field" style="flex:1;"><label class="f-label">Date</label><input type="date" id="mbs-date"></div>
+                <div class="field" style="flex:1;"><label class="f-label">Crew standby time</label><input type="time" id="mbs-crewStandby"></div>
+                <div class="field" style="flex:1;"><label class="f-label">Session time</label><input type="time" id="mbs-sessionTime"></div>
+              </div>
+              <div class="field">
+                <label class="f-label">Location photos</label>
+                <div id="mbs-locationImages-grid" class="moodboard-grid" style="margin-top:0;"></div>
+                <input type="file" id="mbs-locationImages-input" accept="image/*" multiple style="display:none;">
+                <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-locationImages">+ Add location photo</button>
+              </div>
+
+              <div class="field" style="margin-top:20px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <label class="f-label" style="margin:0;">Day-of rundown</label>
+                  <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-auto-rundown">⚡ Auto-generate from Shotlist</button>
+                </div>
+                <div class="table-wrap" style="margin-top:8px;">
+                  <table class="plan-table">
+                    <thead><tr><th>Time</th><th>Activity</th><th>Duration</th><th>Note</th><th></th></tr></thead>
+                    <tbody id="mbs-rundown-body"></tbody>
+                  </table>
+                </div>
+                <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-rundown-row" style="margin-top:8px;">+ Add row</button>
+              </div>
+
+              <div class="field" style="margin-top:24px;">
+                <label class="f-label">Availability / Bookings</label>
+                <p class="sub" style="margin:0 0 10px;">Shared across every moodboard for this client — every booking blocks that window (±1hr margin) elsewhere too.</p>
+                <div id="mbs-bookings-list"></div>
+                <div style="display:flex; gap:10px; margin-top:10px; align-items:flex-end; flex-wrap:wrap;">
+                  <div class="field" style="margin-bottom:0;"><label class="f-label">Date</label><input type="date" id="mbs-booking-date"></div>
+                  <div class="field" style="margin-bottom:0;"><label class="f-label">Start</label><select id="mbs-booking-start"></select></div>
+                  <div class="field" style="margin-bottom:0;"><label class="f-label">Hours</label><select id="mbs-booking-hours"><option value="2">2</option><option value="4">4</option><option value="8">8</option></select></div>
+                  <div class="field" style="flex:1; margin-bottom:0; min-width:160px;"><label class="f-label">Label</label><input type="text" id="mbs-booking-label" placeholder="Client / note"></div>
+                  <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-booking">+ Add booking</button>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>4. Product Shot List</summary>
+            <div class="mbs-section-body">
+              <div id="mbs-shots-list"></div>
+              <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-shot" style="margin-top:10px;">+ Add shot</button>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>5. Background Used</summary>
+            <div class="mbs-section-body">
+              <div id="mbs-backgrounds-list"></div>
+              <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-background" style="margin-top:10px;">+ Add background</button>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>6. Props &amp; Background</summary>
+            <div class="mbs-section-body">
+              <h4 style="margin:0 0 8px; font-size:13px;">Already provided</h4>
+              <div id="mbs-provided-props-list"></div>
+              <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-provided-prop">+ Add provided prop</button>
+              <div class="field" style="margin-top:14px;"><label class="f-label">No-props note</label><input type="text" id="mbs-noPropsNote"></div>
+
+              <h4 style="margin:20px 0 8px; font-size:13px;">Still to buy</h4>
+              <div id="mbs-buy-props-list"></div>
+              <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-buy-prop">+ Add item to buy</button>
+              <div style="margin-top:10px; font-weight:600;">Estimated budget: <span id="mbs-buy-total">Rp 0</span></div>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>7. Styling Reference per Shot</summary>
+            <div class="mbs-section-body">
+              <div id="mbs-styling-list"></div>
+              <button class="btn btn-outline btn-sm" type="button" id="btn-mbs-add-styling" style="margin-top:10px;">+ Add styling reference</button>
+            </div>
+          </details>
+
+          <details class="mbs-section">
+            <summary>8. Closing</summary>
+            <div class="mbs-section-body">
+              <div class="field"><label class="f-label">Thank-you note</label><textarea id="mbs-thankYouNote" style="min-height:60px;"></textarea></div>
+              <div class="field"><label class="f-label">Next steps / how to give feedback</label><textarea id="mbs-nextStepsNote" style="min-height:60px;"></textarea></div>
+            </div>
+          </details>
+
+          <button class="btn btn-accent" id="btn-mbs-save" style="width:100%; padding:12px; margin-top:20px;">Save moodboard</button>
         </div>
       </section>
+
+      <!-- Moodboard Studio preview deck -->
+      <div class="overlay" id="mbs-preview-overlay"></div>
+      <div class="modal" id="mbs-preview-modal">
+        <div class="modal-inner">
+          <button class="icon-btn modal-close" id="mbs-preview-close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+          </button>
+          <div id="mbs-preview-body"></div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px;">
+            <button class="btn btn-outline btn-sm" id="mbs-preview-prev">← Prev</button>
+            <span id="mbs-preview-counter" style="font-size:12px; color:var(--fg-muted);"></span>
+            <button class="btn btn-outline btn-sm" id="mbs-preview-next">Next →</button>
+          </div>
+        </div>
+      </div>
 
       <section class="section page-view" id="campaignbrief" data-page="campaignbrief">
         <div class="section-head">
@@ -547,91 +696,6 @@
         </div>
       </section>
 
-      <section class="section page-view" id="calendar" data-page="calendar">
-        <div class="section-head">
-          <h2>This month's plan</h2>
-          <p class="sub">Grid view by default — switch to list for the full table.</p>
-        </div>
-        <div id="cal-today-banner" class="cal-today-banner" style="display:none;"></div>
-        <div class="analytics-toolbar" style="margin-bottom:16px;">
-          <div class="analytics-filters">
-            <div class="field" style="max-width:220px; margin-bottom:0;">
-              <label class="f-label">Agent</label>
-              <select id="cal-agent-filter">
-                <option value="all">All agents</option>
-                <option value="gemini">Gemini</option>
-                <option value="gemini-chat">Gemini Chat</option>
-                <option value="intelligence">Gemini Creative</option>
-                <option value="claude">Claude</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
-            <div class="field" style="max-width:260px; margin-bottom:0;">
-              <label class="f-label">Generated on</label>
-              <select id="cal-date-filter"><option value="all">All dates</option></select>
-            </div>
-          </div>
-          <div class="tab-row cal-view-toggle">
-            <button class="tab-btn active" id="cal-view-grid" data-calview="grid">📅 Grid</button>
-            <button class="tab-btn" id="cal-view-list" data-calview="list">☰ List</button>
-          </div>
-        </div>
-
-        <div id="cal-grid-panel">
-          <div class="cal-grid-nav">
-            <button class="btn btn-outline btn-sm" id="cal-prev-month">← Prev</button>
-            <div class="cal-grid-month" id="cal-grid-month-label"></div>
-            <button class="btn btn-outline btn-sm" id="cal-next-month">Next →</button>
-            <button class="btn btn-outline btn-sm" id="cal-today-btn">Today</button>
-          </div>
-          <div class="cal-grid-weekdays">
-            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
-          </div>
-          <div class="cal-grid" id="cal-grid"></div>
-        </div>
-
-        <div id="cal-list-panel" style="display:none;">
-          <div class="card" style="padding:0;">
-            <div class="table-wrap">
-              <table class="plan-table">
-                <thead><tr><th>Post</th><th>Date</th><th>Day</th><th>Format</th><th>Headline</th><th>Persona</th><th>Priority</th><th>Agent</th><th></th></tr></thead>
-                <tbody id="cal-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="section page-view" id="previews" data-page="previews">
-        <div class="section-head">
-          <h2>Post previews</h2>
-          <p class="sub">Mockups follow Buranchi's scrapbook design system — matted photo, textured base, editorial headline.</p>
-        </div>
-        <div class="analytics-toolbar" style="margin-bottom:16px;">
-          <div class="analytics-filters">
-            <div class="field" style="max-width:220px; margin-bottom:0;">
-              <label class="f-label">Agent</label>
-              <select id="prev-agent-filter">
-                <option value="all">All agents</option>
-                <option value="gemini">Gemini</option>
-                <option value="gemini-chat">Gemini Chat</option>
-                <option value="intelligence">Gemini Creative</option>
-                <option value="claude">Claude</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
-            <div class="field" style="max-width:260px; margin-bottom:0;">
-              <label class="f-label">Generated on</label>
-              <select id="prev-date-filter"><option value="all">All dates</option></select>
-            </div>
-          </div>
-        </div>
-        <div class="post-cards" id="cards"></div>
-        <div class="empty" id="empty-state">
-          <div class="big">No posts yet</div>
-          <div>Add one above, or paste a plan from a Wonderland chat session.</div>
-        </div>
-      </section>
 
       <section class="section page-view" id="history" data-page="history">
         <div class="section-head">
@@ -653,56 +717,6 @@
         </div>
       </section>
 
-      <section class="section page-view" id="canva" data-page="canva">
-        <div class="section-head">
-          <h2>Canva</h2>
-          <p class="sub">Wonderland writes the copy; Canva builds the visual. Connect an account and map a Brand Template per format — no generative AI, autofill only.</p>
-        </div>
-
-        <div class="card" id="canva-status-card">
-          <div id="canva-not-configured" style="display:none;">
-            <div class="empty">
-              <div class="big">Canva isn't configured yet</div>
-              <div>Needs <code>CANVA_CLIENT_ID</code> / <code>CANVA_CLIENT_SECRET</code> set on the server — Andika's part.</div>
-            </div>
-          </div>
-          <div id="canva-connect-row" style="display:none; align-items:center; justify-content:space-between; gap:14px;">
-            <div>
-              <div class="brief-saved-title">Not connected</div>
-              <div class="brief-saved-meta">Connect the client's Canva account to enable Brand Template autofill.</div>
-            </div>
-            <button class="btn btn-accent" id="btn-canva-connect">Connect Canva account</button>
-          </div>
-          <div id="canva-connected-row" style="display:none; align-items:center; justify-content:space-between; gap:14px;">
-            <div>
-              <div class="brief-saved-title">Connected<span id="canva-connected-name"></span></div>
-              <div class="brief-saved-meta">Brand Template autofill is available on saved Campaign Briefs.</div>
-            </div>
-            <button class="btn btn-outline btn-sm" id="btn-canva-disconnect">Disconnect</button>
-          </div>
-        </div>
-
-        <div class="card" id="canva-mapping-card" style="display:none; margin-top:16px;">
-          <div class="section-head" style="margin-bottom:14px;">
-            <h2 style="font-size:14.5px;">Brand Template mapping</h2>
-            <p class="sub">Which Canva Brand Template to autofill for each format.</p>
-          </div>
-          <div class="field">
-            <label class="f-label">Campaign Brief cover</label>
-            <select id="canva-map-briefCover"><option value="">— pick a template —</option></select>
-          </div>
-          <div class="field">
-            <label class="f-label">Feed post</label>
-            <select id="canva-map-feed"><option value="">— pick a template —</option></select>
-          </div>
-          <div class="field">
-            <label class="f-label">Story</label>
-            <select id="canva-map-story"><option value="">— pick a template —</option></select>
-          </div>
-          <button class="btn btn-accent" id="btn-canva-save-mapping">Save mapping</button>
-          <span id="canva-mapping-status" class="rescrape-status"></span>
-        </div>
-      </section>
 
       <section class="section page-view" id="agentbehavior" data-page="agentbehavior">
         <div class="section-head">
@@ -825,51 +839,6 @@
         </div>
       </section>
 
-      <section class="section page-view" id="directorya" data-page="directorya">
-        <div class="section-head">
-          <h2>Directory A</h2>
-          <p class="sub">Each client's Google Drive creative archive, read-only — Creative Chat uses it to know what visual assets and past campaigns already exist.</p>
-        </div>
-
-        <div id="dira-list-view">
-          <div class="analytics-toolbar" style="margin-bottom:16px;">
-            <span></span>
-            <button class="btn btn-accent btn-sm" id="btn-dira-add-client">+ Add new client</button>
-          </div>
-          <div id="dira-add-client-form" class="card" style="display:none; margin-bottom:16px; max-width:420px;">
-            <div class="field">
-              <label class="f-label">Client name</label>
-              <input type="text" id="dira-new-client-name" placeholder="e.g. Toko Hijau">
-            </div>
-            <div style="display:flex; gap:8px;">
-              <button class="btn btn-accent btn-sm" id="btn-dira-create-client">Create client</button>
-              <button class="btn btn-outline btn-sm" id="btn-dira-cancel-create">Cancel</button>
-            </div>
-            <span id="dira-create-status" class="rescrape-status" style="display:block; margin-top:8px;"></span>
-          </div>
-          <div id="dira-client-list"></div>
-        </div>
-
-        <div id="dira-detail-view" style="display:none;">
-          <div class="analytics-toolbar" style="margin-bottom:16px;">
-            <button class="btn btn-outline btn-sm" id="btn-dira-back">← Back to clients</button>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span id="dira-status" class="rescrape-status"></span>
-              <button class="btn btn-accent btn-sm" id="btn-dira-sync">Sync from Drive</button>
-            </div>
-          </div>
-          <div id="dira-not-configured" class="card" style="display:none; max-width:480px;">
-            <div class="field">
-              <label class="f-label">Google Drive folder link</label>
-              <input type="text" id="dira-link-input" placeholder="https://drive.google.com/drive/folders/...">
-              <div style="font-size:11px; color:var(--fg-muted); margin-top:4px;" id="dira-link-help"></div>
-            </div>
-            <button class="btn btn-accent btn-sm" id="btn-dira-link">Link folder</button>
-            <span id="dira-link-status" class="rescrape-status" style="margin-left:8px;"></span>
-          </div>
-          <div id="dira-groups"></div>
-        </div>
-      </section>
 
       <section class="section page-view" id="masterconfig" data-page="masterconfig">
         <div class="section-head">
