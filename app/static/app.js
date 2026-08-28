@@ -114,6 +114,12 @@ async function init(){
     btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
   });
 
+  $('btn-board-ext-search').addEventListener('click', searchBoardExternal);
+  $('btn-board-send').addEventListener('click', sendBoardMessage);
+  $('board-input').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendBoardMessage(); }
+  });
+
   $('btn-mbs-new').addEventListener('click', createNewMbsDeck);
   $('btn-mbs-back').addEventListener('click', closeMbsEditor);
   $('btn-mbs-save').addEventListener('click', saveMbsDeck);
@@ -252,6 +258,7 @@ const PAGE_SUBTITLES = {
   generate: 'Build a plan, check it against brand standing rules, and export it in Buranchi\'s house style.',
   moodboard: 'Cover, direction, shotlist, backgrounds, props, styling, and booking availability.',
   campaignbrief: 'Same sections as the real brief doc, plus AI rephrasing and a visual reference picker.',
+  campaignboard: 'Compare reference from 4 sources, let the AI Judge reason about the pick, then refine in plain language.',
   ideation: 'Brainstorm raw content ideas before planning them out.',
   history: 'Every plan request across all 3 tabs, with token cost and post count.',
   agentbehavior: 'Guardrails global plus kondisi default per agent, dengan kondisi tambahan yang bisa lo edit sendiri.',
@@ -1082,6 +1089,7 @@ function renderSavedBriefs(){
           <div class="brief-saved-meta">${fmtDateTime(b.createdAt)}${b.timeline ? ' · ' + esc(b.timeline) : ''}</div>
         </div>
         <div class="brief-saved-actions">
+          <button class="btn btn-accent btn-sm" data-brief-board="${esc(b.id)}">Open Campaign Board</button>
           <button class="btn btn-outline btn-sm" data-brief-canva="${esc(b.id)}">${b.canva ? 'Re-send to Canva' : 'Send to Canva'}</button>
           <button class="btn btn-outline btn-sm" data-brief-export="${esc(b.id)}">Export</button>
           <button class="btn btn-outline btn-sm" data-brief-delete="${esc(b.id)}">Delete</button>
@@ -1101,6 +1109,9 @@ function renderSavedBriefs(){
   });
   $('brief-saved-list').querySelectorAll('[data-brief-canva]').forEach(btn => {
     btn.addEventListener('click', () => sendBriefToCanva(btn.dataset.briefCanva));
+  });
+  $('brief-saved-list').querySelectorAll('[data-brief-board]').forEach(btn => {
+    btn.addEventListener('click', () => openCampaignBoardPage(btn.dataset.briefBoard));
   });
 }
 
@@ -1165,6 +1176,189 @@ ${vc ? `<div class="vc-card">
   a.href = url; a.download = `${b.title.replace(/[^a-z0-9]+/gi,'-')}-Campaign-Brief.html`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ---------- campaign board ---------- */
+let currentBoard = null;
+// Category C candidates aren't persisted server-side — they only live for the current search,
+// and get sent along with the next feedback message so the Judge can still reason about them.
+let boardExternalResults = [];
+
+async function openCampaignBoardPage(briefId){
+  showPage('campaignboard');
+  document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.toggle('active', a.dataset.page === 'campaignboard'));
+
+  $('board-content').style.display = 'none';
+  $('board-empty').style.display = 'block';
+  $('board-empty').querySelector('.big').textContent = 'Loading…';
+  $('board-empty').querySelector('div:last-child').textContent = '';
+
+  const existing = await api('/api/campaign-boards?briefId=' + encodeURIComponent(briefId)) || [];
+  let board;
+  if(existing.length){
+    board = await api('/api/campaign-boards/' + existing[existing.length - 1].id);
+  } else {
+    board = await api('/api/campaign-boards', { method:'POST', body: JSON.stringify({ briefId }) });
+  }
+
+  if(!board || !board.id){
+    $('board-empty').querySelector('.big').textContent = 'Could not open Campaign Board';
+    $('board-empty').querySelector('div:last-child').textContent = (board && board.error) || 'Try again.';
+    return;
+  }
+
+  currentBoard = board;
+  boardExternalResults = [];
+  $('board-ext-query').value = '';
+  $('board-ext-status').textContent = '';
+  $('board-empty').style.display = 'none';
+  $('board-content').style.display = 'block';
+  renderBoard();
+}
+
+function boardVersions(){
+  return currentBoard.contents.filter(c => c.role === 'model').map(c => JSON.parse(c.parts[0].text));
+}
+
+function renderBoardRefColumn(cat, refs, decision){
+  const chosenKeys = new Set([decision.primary, decision.supporting, decision.marketBenchmark, decision.personal].filter(Boolean).map(d => d.refKey));
+  const grid = $('board-ref-' + cat);
+  if(!refs.length){
+    grid.innerHTML = `<div class="board-ref-empty">No candidates${cat === 'C' ? ' — search Pinterest/Behance above' : ' yet'}.</div>`;
+    return;
+  }
+  grid.innerHTML = refs.map(r => `
+    <div class="vizref-card ${chosenKeys.has(r.refKey) ? 'board-ref-chosen' : ''}" title="${esc(r.name)}">
+      <img src="${esc(r.url)}" loading="lazy">
+      <div class="vizref-label">${esc(r.name)}</div>
+    </div>
+  `).join('');
+}
+
+function renderBoardJudgeOutput(version){
+  const d = version.decision || {}, reasoning = d.reasoning || {}, cd = version.creativeDirection || {}, pi = version.productionInstruction || {};
+  const row = (lab, val) => `<div class="detail-row"><div class="detail-lab">${esc(lab)}</div><div class="detail-val">${esc(val || '—')}</div></div>`;
+  $('board-judge-output').innerHTML = `
+    <div class="detail-spec" style="margin-top:22px;">
+      ${row('Reasoning — A (Historical)', reasoning.A)}
+      ${row('Reasoning — B (Competitor)', reasoning.B)}
+      ${row('Reasoning — C (External)', reasoning.C)}
+      ${row('Reasoning — D (Personal)', reasoning.D)}
+      ${row('Style', cd.style)}
+      ${row('Composition', cd.composition)}
+      ${row('Lighting', cd.lighting)}
+      ${row('Color', cd.color)}
+      ${row('Mood', cd.mood)}
+      ${row('Subject', cd.subject)}
+      ${row('Framing', cd.framing)}
+      ${row('Avoid', cd.avoid)}
+      ${row('Production — For Designer', pi.designer)}
+      ${row('Production — For Image Generator', pi.imageGenerator)}
+      ${row('Production — For Copywriter', pi.copywriter)}
+    </div>`;
+}
+
+function renderBoard(){
+  const versions = boardVersions();
+  if(!versions.length) return;
+  const latest = versions[versions.length - 1];
+  ['A','B','C','D'].forEach(cat => renderBoardRefColumn(cat, (latest.references && latest.references[cat]) || [], latest.decision || {}));
+  renderBoardJudgeOutput(latest);
+  renderBoardLog(versions);
+}
+
+function renderBoardLog(versions){
+  const feedbacks = currentBoard.contents.filter(c => c.role === 'user').map(c => c.parts[0].text);
+  $('board-log').innerHTML = versions.map((v, idx) => {
+    const isLatest = idx === versions.length - 1;
+    const turnIndex = idx * 2 + 1;
+    const approved = currentBoard.approvedTurnIndex === turnIndex;
+    return `
+    <div class="chat-row model">
+      <div class="board-version-card">
+        <div class="board-version-head">
+          <b>Version ${v.version}</b>
+          ${approved ? '<span class="event-flag">approved</span>' : ''}
+          ${feedbacks[idx] ? `<span class="sub-inline">— "${esc(feedbacks[idx])}"</span>` : ''}
+          <button class="btn btn-outline btn-sm" style="margin-left:auto;" data-board-toggle="${idx}">${isLatest ? 'Collapse' : 'Expand'}</button>
+          ${!approved ? `<button class="btn btn-accent btn-sm" data-board-approve="${idx}">Approve this version</button>` : ''}
+        </div>
+        <div class="board-version-body" style="display:${isLatest ? 'block' : 'none'};">
+          <div class="caption-box">${esc(v.creativeDirection && v.creativeDirection.style || '')} — ${esc(v.creativeDirection && v.creativeDirection.mood || '')}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  $('board-log').querySelectorAll('[data-board-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.board-version-card');
+      const body = card.querySelector('.board-version-body');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      btn.textContent = open ? 'Expand' : 'Collapse';
+    });
+  });
+  $('board-log').querySelectorAll('[data-board-approve]').forEach(btn => {
+    btn.addEventListener('click', () => approveBoardVersion(parseInt(btn.dataset.boardApprove, 10)));
+  });
+  $('board-log').scrollTop = $('board-log').scrollHeight;
+}
+
+async function approveBoardVersion(idx){
+  const turnIndex = idx * 2 + 1;
+  await api('/api/campaign-boards/' + currentBoard.id + '/approve', { method:'POST', body: JSON.stringify({ turnIndex }) });
+  currentBoard.approvedTurnIndex = turnIndex;
+  renderBoardLog(boardVersions());
+}
+
+async function searchBoardExternal(){
+  const source = $('board-ext-source').value;
+  const query = $('board-ext-query').value.trim();
+  if(!query){ $('board-ext-status').textContent = 'Type a search keyword first.'; return; }
+  $('btn-board-ext-search').disabled = true;
+  $('board-ext-status').textContent = `Searching ${source}…`;
+  const res = await api('/api/campaign-board/search-external', { method:'POST', body: JSON.stringify({ source, query }) });
+  $('btn-board-ext-search').disabled = false;
+  if(res && res.ok){
+    boardExternalResults = res.results;
+    $('board-ext-status').textContent = `${res.results.length} result${res.results.length === 1 ? '' : 's'} found.`;
+    renderBoardRefColumn('C', res.results, {});
+  } else {
+    $('board-ext-status').textContent = (res && res.error) || 'Search failed.';
+  }
+}
+
+async function sendBoardMessage(){
+  const input = $('board-input');
+  const feedback = input.value.trim();
+  if(!feedback || !currentBoard) return;
+  input.value = '';
+  $('btn-board-send').disabled = true;
+  input.disabled = true;
+  // The Judge call reads several full-size images at once, so this genuinely takes 10-20s —
+  // without this, the wait reads as "nothing happened" rather than "still working."
+  $('board-send-status').textContent = 'AI Judge is looking at the references and thinking… (10-20s)';
+  try {
+    const res = await api('/api/campaign-boards/' + currentBoard.id + '/message', {
+      method:'POST', body: JSON.stringify({ feedback, externalRefs: boardExternalResults })
+    });
+    if(res && res.ok){
+      currentBoard = await api('/api/campaign-boards/' + currentBoard.id);
+      renderBoard();
+      $('board-send-status').textContent = 'Updated — new version added below.';
+      setTimeout(() => { if($('board-send-status').textContent === 'Updated — new version added below.') $('board-send-status').textContent = ''; }, 4000);
+    } else {
+      $('board-send-status').textContent = (res && res.error) || 'Could not process feedback — try again.';
+      input.value = feedback;
+    }
+  } catch(e){
+    $('board-send-status').textContent = 'Request failed — try again.';
+    input.value = feedback;
+  } finally {
+    $('btn-board-send').disabled = false;
+    input.disabled = false;
+  }
 }
 
 async function loadPastedPlanFromText(raw){

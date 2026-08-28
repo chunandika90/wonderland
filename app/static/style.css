@@ -413,6 +413,20 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .vizref-card.selected{border-color:var(--accent);}
 .vizref-card.selected::after{content:"✓"; position:absolute; top:6px; right:6px; width:20px; height:20px; border-radius:999px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font-size:11px; font-weight:700;}
 
+/* ---------- campaign board ---------- */
+.board-ref-grid{display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; align-items:start;}
+@media (max-width:1100px){ .board-ref-grid{grid-template-columns:repeat(2, 1fr);} }
+.board-ref-col{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px;}
+.board-ref-col-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--fg-soft); margin-bottom:10px;}
+.board-ref-cards{display:grid; grid-template-columns:1fr 1fr; gap:8px; max-height:340px; overflow-y:auto;}
+.board-ref-empty{grid-column:1/-1; font-size:12px; color:var(--fg-muted); padding:10px 0;}
+.board-ref-chosen{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-50);}
+.board-ext-search{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}
+.board-ext-search select, .board-ext-search input{padding:7px 9px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; background:var(--canvas); color:var(--fg);}
+.board-version-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; flex:1;}
+.board-version-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.board-version-body{margin-top:10px;}
+
 /* ---------- icon button ---------- */
 .icon-btn{
   width:34px; height:34px; display:grid; place-items:center; border-radius:var(--radius-sm);

@@ -2369,6 +2369,282 @@ app.get('/media/analytics/:slug/:file', (req, res) => {
   res.sendFile(filePath);
 });
 
+// --- Campaign Board: iterative AI creative-decision workspace layered on top of a saved
+// Campaign Brief. Retrieves 4 categories of visual reference (A=Directory A/historical,
+// B=Competitor, C=Pinterest/Behance external search, D=personal upload from the brief), runs a
+// single Gemini vision call to reason about which to use and produce concrete creative
+// direction, then lets the user refine that decision in plain language. Each round is appended
+// as a new conversation turn and never overwrites the last — same "the conversation IS the
+// version history" pattern as Creative Chat above, reusing the exact same shape.
+function orgCampaignBoardsFile(slug) { return path.join(orgDataDir(slug), 'campaign-boards.json'); }
+function loadCampaignBoards(slug) { return readJson(orgCampaignBoardsFile(slug), []); }
+function saveCampaignBoards(slug, list) { writeJson(orgCampaignBoardsFile(slug), list); }
+function orgCampaignBoardMediaDir(slug) { return path.join(orgDataDir(slug), 'campaign-board-media'); }
+
+// Downloads and caches an external (Pinterest/Behance) image once so its refKey stays valid even
+// if the source CDN blocks hotlinking or the pin/project is deleted later — same "download once,
+// never re-fetch" approach as cacheDisplayImages() above, just keyed by an md5 of the source id
+// instead of an Instagram shortCode.
+async function cacheCampaignBoardImage(slug, sourceUrl, idHint) {
+  const dir = orgCampaignBoardMediaDir(slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const filename = crypto.createHash('md5').update(idHint || sourceUrl).digest('hex') + '.jpg';
+  const filePath = path.join(dir, filename);
+  if (!fs.existsSync(filePath)) {
+    const res = await fetch(sourceUrl);
+    if (!res.ok) return null;
+    fs.writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
+  }
+  return filename;
+}
+
+function readLocalImageAsInlineData(filePath) {
+  try {
+    return { inlineData: { mimeType: 'image/jpeg', data: fs.readFileSync(filePath).toString('base64') } };
+  } catch (e) {
+    return null;
+  }
+}
+
+app.get('/media/campaign-board/:slug/:file', (req, res) => {
+  if (req.params.slug !== req.session.orgSlug) return res.status(403).end();
+  const filePath = path.join(orgCampaignBoardMediaDir(req.params.slug), path.basename(req.params.file));
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+  res.sendFile(filePath);
+});
+
+// Category C retrieval — a scoped keyword search against one of two freshly-connected Apify
+// actors, not a blind pull. Input shapes below were confirmed from real test runs already made
+// on the account (fatihtahta/pinterest-scraper-search wants a search URL; headlessagent/
+// behance-search-scraper wants query arrays), not guessed from docs.
+app.post('/api/campaign-board/search-external', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const { source, query } = req.body || {};
+  if (!query || !query.trim()) return res.status(400).json({ error: 'A search keyword is required.' });
+  const token = org.apifyToken || process.env.APIFY_API_TOKEN;
+  if (!token) return res.status(400).json({ error: 'Apify API token not configured. Add one via scripts/set-apify-token.js, then try again.' });
+
+  try {
+    let items;
+    if (source === 'pinterest') {
+      const r = await fetch(`https://api.apify.com/v2/acts/fatihtahta~pinterest-scraper-search/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startUrls: [`https://www.pinterest.com/search/pins/?q=${encodeURIComponent(query)}`],
+          type: 'all-pins', limit: 40,
+          proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] }
+        })
+      });
+      if (!r.ok) throw new Error(`Apify request failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 300)}`);
+      const raw = await r.json();
+      if (!Array.isArray(raw)) throw new Error('Unexpected response shape from Apify.');
+      items = raw.slice(0, 24).map(p => ({
+        id: p.id || p.pinId || p.link,
+        name: (p.title || p.description || 'Pinterest pin').slice(0, 80),
+        imageUrl: p.imageUrl || p.image || (p.images && p.images.orig && p.images.orig.url),
+        sourceLink: p.link || p.pinUrl
+      })).filter(p => p.imageUrl);
+    } else if (source === 'behance') {
+      const r = await fetch(`https://api.apify.com/v2/acts/headlessagent~behance-search-scraper/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageQueries: [query], maxResults: 20 })
+      });
+      if (!r.ok) throw new Error(`Apify request failed (${r.status}): ${(await r.text().catch(() => '')).slice(0, 300)}`);
+      const raw = await r.json();
+      if (!Array.isArray(raw)) throw new Error('Unexpected response shape from Apify.');
+      items = raw.slice(0, 24).map(p => ({
+        id: p.id || p.url,
+        name: (p.title || p.name || 'Behance result').slice(0, 80),
+        imageUrl: p.imageUrl || p.image || p.thumbnail,
+        sourceLink: p.url || p.projectUrl
+      })).filter(p => p.imageUrl);
+    } else {
+      return res.status(400).json({ error: 'source must be "pinterest" or "behance"' });
+    }
+
+    const cached = [];
+    for (const item of items) {
+      const filename = await cacheCampaignBoardImage(org.slug, item.imageUrl, source + ':' + item.id);
+      if (!filename) continue;
+      cached.push({
+        refKey: `external:${source}:${item.id}`, name: item.name,
+        url: `/media/campaign-board/${org.slug}/${filename}`, sourceLink: item.sourceLink, localFile: filename
+      });
+    }
+    res.json({ ok: true, results: cached });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+const CAMPAIGN_BOARD_JUDGE_PROMPT = `You are the AI Judge for a Campaign Board — a workspace that helps an agency decide creative direction before production, by comparing four categories of visual reference:
+A — Historical/Internal: the brand's own past visual archive. Role: brand guardrail. Question: what have we done before?
+B — Competitor: scraped competitor posts. Role: market benchmark. Question: what is the market doing?
+C — External (Pinterest/Behance): outside creative inspiration the user searched for. Role: primary creative inspiration. Question: what else is creatively possible?
+D — Personal: reference images the user uploaded themselves. Role: user intent. Question: what does the user already have in mind?
+
+You will be shown labeled candidate images from some or all of these categories, plus the campaign brief, and — if this is a refinement round — the previous decision and the user's new feedback (treat that feedback as an explicit constraint, not a suggestion).
+
+For each category that has candidates, pick your single best pick and explain the reasoning (or explain why none of that category's candidates fit, if that's the honest answer). Do not treat "most technically polished" as automatically "best" — judge for relevance to the brief.
+
+Respond with ONLY a raw JSON object matching exactly:
+{
+  "decision": {
+    "primary": {"refKey": "...", "category": "A|B|C|D"} | null,
+    "supporting": {"refKey": "...", "category": "A|B|C|D"} | null,
+    "marketBenchmark": {"refKey": "...", "category": "B"} | null,
+    "personal": {"refKey": "...", "category": "D"} | null,
+    "reasoning": {"A": "...", "B": "...", "C": "...", "D": "..."}
+  },
+  "creativeDirection": {"style": "...", "composition": "...", "lighting": "...", "color": "...", "mood": "...", "subject": "...", "framing": "...", "avoid": "..."},
+  "productionInstruction": {"designer": "...", "imageGenerator": "...", "copywriter": "..."}
+}
+Leave a category's reasoning as an empty string if it had no candidates at all. Never invent a refKey that wasn't shown to you.`;
+
+async function runCampaignBoardJudge(org, brief, priorVersion, feedback, externalRefs) {
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+
+  const manifest = loadDirectoryAManifest(org.slug);
+  const candA = ((manifest && manifest.files) || []).filter(f => f.hasThumbnail).slice(0, 6).map(f => ({
+    refKey: 'internal:' + f.id, name: f.name, localPath: path.join(orgDirectoryAThumbsDir(org.slug), f.id + '.jpg')
+  }));
+
+  const snapshot = loadLatestAnalyticsSnapshot(org.slug);
+  const candB = (((snapshot && snapshot.data && snapshot.data.posts) || []))
+    .filter(p => p.display_url && p.display_url.startsWith('/media/analytics/'))
+    .slice(0, 6).map(p => ({
+      refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`,
+      localPath: path.join(orgImagesDir(org.slug), path.basename(p.display_url))
+    }));
+
+  const candC = (externalRefs || []).slice(0, 12).map(r => ({
+    refKey: r.refKey, name: r.name, localPath: path.join(orgCampaignBoardMediaDir(org.slug), r.localFile)
+  }));
+
+  const candD = ((brief.referenceImages || []).filter(i => i.kind === 'upload')).slice(0, 6).map((i, idx) => ({
+    refKey: 'personal:' + idx, name: i.name || `Upload ${idx + 1}`, inline: { inlineData: { mimeType: i.mimeType, data: i.data } }
+  }));
+
+  const parts = [];
+  const labelLines = [];
+  [['A', candA], ['B', candB], ['C', candC], ['D', candD]].forEach(([cat, list]) => {
+    list.forEach(c => {
+      const inline = c.inline || readLocalImageAsInlineData(c.localPath);
+      if (!inline) return;
+      parts.push(inline);
+      labelLines.push(`[${cat}] refKey="${c.refKey}" name="${c.name}"`);
+    });
+  });
+
+  const briefText = `CAMPAIGN BRIEF
+Title: ${brief.title || ''}
+Background: ${brief.background || ''}
+Audience: ${brief.audience || ''}
+Objective: ${brief.objective || ''}
+Channels: ${brief.channels || ''}
+Terms/constraints: ${brief.terms || ''}`;
+
+  const priorText = priorVersion ? `\n\nPREVIOUS DECISION:\n${JSON.stringify(priorVersion.decision)}\n${JSON.stringify(priorVersion.creativeDirection)}` : '';
+  const feedbackText = feedback ? `\n\nUSER FEEDBACK ON THE PREVIOUS DECISION (treat as explicit constraint): ${feedback}` : '';
+
+  const textPart = { text: `${briefText}${priorText}${feedbackText}\n\nCANDIDATE IMAGES SHOWN BELOW, IN ORDER:\n${labelLines.join('\n') || '(no candidates available)'}` };
+  const contents = [{ role: 'user', parts: [textPart, ...parts] }];
+
+  const { parsed, tokenUsage, model } = await callGeminiJSON(apiKey, CAMPAIGN_BOARD_JUDGE_PROMPT, contents);
+
+  const versionPayload = {
+    type: 'board-version',
+    version: priorVersion ? priorVersion.version + 1 : 1,
+    references: {
+      A: candA.map(c => ({ refKey: c.refKey, name: c.name, url: `/media/directory-a/${org.slug}/${path.basename(c.localPath)}` })),
+      B: candB.map(c => ({ refKey: c.refKey, name: c.name, url: `/media/analytics/${org.slug}/${path.basename(c.localPath)}` })),
+      C: (externalRefs || []).map(r => ({ refKey: r.refKey, name: r.name, url: r.url })),
+      D: candD.map(c => ({ refKey: c.refKey, name: c.name, url: `data:${c.inline.inlineData.mimeType};base64,${c.inline.inlineData.data}` }))
+    },
+    decision: parsed.decision,
+    creativeDirection: parsed.creativeDirection,
+    productionInstruction: parsed.productionInstruction,
+    tokenUsage, model
+  };
+  return { versionPayload };
+}
+
+app.get('/api/campaign-boards', (req, res) => {
+  const briefId = req.query.briefId;
+  const list = loadCampaignBoards(req.session.orgSlug).filter(b => !briefId || b.briefId === briefId);
+  res.json(list.map(b => ({
+    id: b.id, briefId: b.briefId, title: b.title, createdAt: b.createdAt, updatedAt: b.updatedAt,
+    versionCount: b.contents.filter(c => c.role === 'model').length, approvedTurnIndex: b.approvedTurnIndex
+  })));
+});
+
+app.get('/api/campaign-boards/:id', (req, res) => {
+  const board = loadCampaignBoards(req.session.orgSlug).find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  res.json(board);
+});
+
+app.post('/api/campaign-boards', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const { briefId } = req.body || {};
+  const brief = readCampaignBriefs(org.slug).find(b => b.id === briefId);
+  if (!brief) return res.status(404).json({ error: 'Campaign brief not found' });
+
+  const list = loadCampaignBoards(org.slug);
+  const now = new Date().toISOString();
+  const board = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 8), briefId, title: brief.title, createdAt: now, updatedAt: now, contents: [], approvedTurnIndex: null };
+
+  try {
+    const { versionPayload } = await runCampaignBoardJudge(org, brief, null, '', []);
+    board.contents.push({ role: 'user', parts: [{ text: '' }] });
+    board.contents.push({ role: 'model', parts: [{ text: JSON.stringify(versionPayload) }] });
+    list.push(board);
+    saveCampaignBoards(org.slug, list);
+    res.json(board);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post('/api/campaign-boards/:id/message', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const list = loadCampaignBoards(org.slug);
+  const board = list.find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  const brief = readCampaignBriefs(org.slug).find(b => b.id === board.briefId);
+  if (!brief) return res.status(404).json({ error: 'Campaign brief not found' });
+
+  const feedback = ((req.body && req.body.feedback) || '').trim();
+  const externalRefs = (req.body && req.body.externalRefs) || [];
+  if (!feedback) return res.status(400).json({ error: 'Feedback text is required.' });
+
+  const priorModelTurns = board.contents.filter(c => c.role === 'model');
+  const priorVersion = priorModelTurns.length ? JSON.parse(priorModelTurns[priorModelTurns.length - 1].parts[0].text) : null;
+
+  try {
+    const { versionPayload } = await runCampaignBoardJudge(org, brief, priorVersion, feedback, externalRefs);
+    board.contents.push({ role: 'user', parts: [{ text: feedback }] });
+    board.contents.push({ role: 'model', parts: [{ text: JSON.stringify(versionPayload) }] });
+    board.updatedAt = new Date().toISOString();
+    saveCampaignBoards(org.slug, list);
+    res.json({ ok: true, turnIndex: board.contents.length - 1, versionPayload });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/campaign-boards/:id/approve', (req, res) => {
+  const list = loadCampaignBoards(req.session.orgSlug);
+  const board = list.find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+  const turnIndex = parseInt(req.body && req.body.turnIndex, 10);
+  board.approvedTurnIndex = turnIndex;
+  saveCampaignBoards(req.session.orgSlug, list);
+  res.json({ ok: true });
+});
+
 // Serve the two HTML shells ourselves (instead of via express.static below) so we can inject the
 // runtime base path — a <base> tag for the browser's own relative-link resolution, and a JS global
 // for app.js/login.js to prefix their own fetch() calls with. Every other static asset (style.css,
