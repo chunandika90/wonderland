@@ -66,8 +66,18 @@ async function init(){
   $('clientpicker-overlay').addEventListener('click', closeClientPicker);
 
   if(!me.clientSlug){
-    openClientPicker(true);
-    return;
+    // No client picked yet for this session — auto-pick the first one instead of blocking
+    // with a mandatory popup; the org-badge switcher up top is always there to change it.
+    const clients = await api('/api/clients') || [];
+    if(clients.length){
+      const first = clients[0];
+      await api('/api/session/client', { method:'POST', body: JSON.stringify({ slug: first.slug }) });
+      me.clientSlug = first.slug;
+      me.clientName = first.name;
+    } else {
+      openClientPicker(true);
+      return;
+    }
   }
 
   $('org-name').textContent = me.clientName;
