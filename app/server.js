@@ -50,6 +50,7 @@ const CONFIG_LABELS = {
   'brand-voice': { label: 'Brand Voice', desc: 'Tone, vocabulary, do/don\'t phrasing patterns', file: 'brand-voice.md' },
   'icp': { label: 'Ideal Customer Profile', desc: 'The two personas and how to target them', file: 'ideal-customer-profile.md' },
   'compass-assistant': { label: 'Wonderland Assistant Instructions', desc: 'Full role, design system, and output contract Claude follows',file: 'compass-assistant.md' },
+  'brand-visual-identity': { label: 'Brand Visual Identity', desc: 'Logo, color palette, and typography — Sakara\'s visual identity system', file: 'brand-visual-identity.md' },
 };
 
 app.use(express.json({ limit: '2mb' }));
@@ -149,10 +150,6 @@ function parseInstagramHandle(input) {
 function readPosts(slug) { return readJson(orgPostsFile(slug), []); }
 function writePosts(slug, posts) { writeJson(orgPostsFile(slug), posts); }
 
-function orgMoodboardFile(slug) { return path.join(orgDataDir(slug), 'moodboard.json'); }
-function readMoodboard(slug) { return readJson(orgMoodboardFile(slug), []); }
-function writeMoodboard(slug, items) { writeJson(orgMoodboardFile(slug), items); }
-
 function orgCampaignBriefsFile(slug) { return path.join(orgDataDir(slug), 'campaign-briefs.json'); }
 function readCampaignBriefs(slug) { return readJson(orgCampaignBriefsFile(slug), []); }
 function writeCampaignBriefs(slug, items) { writeJson(orgCampaignBriefsFile(slug), items); }
@@ -240,7 +237,8 @@ app.post('/api/clients', requireAuth, (req, res) => {
     'brand-context.md': `# Brand Context — ${name}\n\n(Fill this in via Master Config.)\n`,
     'brand-voice.md': `# Brand Voice — ${name}\n\n(Fill this in via Master Config.)\n`,
     'ideal-customer-profile.md': `# Ideal Customer Profile — ${name}\n\n(Fill this in via Master Config.)\n`,
-    'compass-assistant.md': `# ${name} — Assistant Instructions\n\n(Fill this in via Master Config.)\n`
+    'compass-assistant.md': `# ${name} — Assistant Instructions\n\n(Fill this in via Master Config.)\n`,
+    'brand-visual-identity.md': `# Brand Visual Identity — ${name}\n\n(Fill this in via Master Config — logo, color hex codes, typography.)\n`
   };
   Object.entries(templates).forEach(([file, content]) => fs.writeFileSync(path.join(configDir, file), content, 'utf8'));
 
@@ -394,7 +392,7 @@ app.delete('/api/competitors/:slug/:handle', requireAuth, (req, res) => {
 
 // --- Gate everything else in /api and the app shell ---
 app.use((req, res, next) => {
-  if (req.path === '/login.html' || req.path.startsWith('/assets/') || req.path === '/style.css' || req.path === '/login.js') {
+  if (req.path === '/login.html' || req.path.startsWith('/assets/') || req.path === '/style.css' || req.path === '/login.js' || req.path.startsWith('/brand/') || req.path.startsWith('/fonts/')) {
     return next();
   }
   // Sakara Ops bridge routes authenticate via their own shared-secret header (see
@@ -558,34 +556,89 @@ app.delete('/api/posts', (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Moodboard API (scoped to the logged-in org) ---
-// Same paste-from-Claude-chat shape as Posts: no per-item validation on the bulk load,
-// just tag each item with an id/createdAt/generatedBy and store it.
-app.get('/api/moodboard', (req, res) => res.json(readMoodboard(req.session.orgSlug)));
+// --- Moodboard Studio (scoped to the logged-in org) ---
+// Full Wonder-team deck editor per Moodboard-Studio-Wonder-Team-Spec.md: 8 independently-optional
+// sections, one JSON object per project/deck. This replaces the earlier simple paste-based
+// moodboard. Deviates from the spec's own "single self-contained HTML file" implementation on
+// purpose — Wonderland already has a real per-org backend, so deck state is stored there (solving
+// the spec's own documented cross-client-copy limitation) and "Generate Moodboard" instead produces
+// a downloadable standalone HTML file (client-side), since this app has no public/anon link hosting.
+// The client-facing intake side (companion spec, not provided) is out of scope — every field here
+// is filled by the Wonder team directly, no auto-population from a client submission.
+function orgMoodboardDecksFile(slug) { return path.join(orgDataDir(slug), 'moodboard-decks.json'); }
+function readMoodboardDecks(slug) { return readJson(orgMoodboardDecksFile(slug), []); }
+function writeMoodboardDecks(slug, decks) { writeJson(orgMoodboardDecksFile(slug), decks); }
 
-app.post('/api/moodboard/bulk', (req, res) => {
-  const items = readMoodboard(req.session.orgSlug);
-  const incoming = Array.isArray(req.body) ? req.body : [];
-  const batchTime = new Date().toISOString();
-  incoming.forEach(m => {
-    m.id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-    m.createdAt = m.createdAt || batchTime;
-    if (!m.generatedBy) m.generatedBy = 'claude';
-    items.push(m);
-  });
-  writeMoodboard(req.session.orgSlug, items);
-  res.json(readMoodboard(req.session.orgSlug));
+function orgMoodboardBookingsFile(slug) { return path.join(orgDataDir(slug), 'moodboard-bookings.json'); }
+function readMoodboardBookings(slug) { return readJson(orgMoodboardBookingsFile(slug), []); }
+function writeMoodboardBookings(slug, bookings) { writeJson(orgMoodboardBookingsFile(slug), bookings); }
+
+const BLANK_MOODBOARD_DECK = () => ({
+  meta: { studioName: '', clientName: '', projectTitle: '', year: new Date().getFullYear(), confidentialNote: '', coverImage: null },
+  intention: { concept: '', directionTitle: '', lighting: '', vibe: '', focus: '', clientLikes: '', clientEvaluation: '', teamDiscernment: '', anchorWords: ['', '', ''], boundaries: '', directionImage: null },
+  whereWhen: { locationName: '', address: '', date: '', crewStandby: '', sessionTime: '', locationImages: [], rundown: [] },
+  shotlist: { shots: [] },
+  backgrounds: { concepts: [] },
+  props: { providedItems: [], noPropsNote: '', buyItems: [] },
+  styling: { items: [] },
+  closing: { thankYouNote: '', nextStepsNote: '' }
 });
 
-app.delete('/api/moodboard/:id', (req, res) => {
-  let items = readMoodboard(req.session.orgSlug);
-  items = items.filter(m => m.id !== req.params.id);
-  writeMoodboard(req.session.orgSlug, items);
+app.get('/api/moodboard-studio', (req, res) => {
+  const decks = readMoodboardDecks(req.session.orgSlug);
+  res.json(decks.map(d => ({ id: d.id, title: d.meta.projectTitle || '(untitled)', clientName: d.meta.clientName, date: d.whereWhen.date, updatedAt: d.updatedAt, createdAt: d.createdAt })));
+});
+
+app.get('/api/moodboard-studio/:id', (req, res) => {
+  const deck = readMoodboardDecks(req.session.orgSlug).find(d => d.id === req.params.id);
+  if (!deck) return res.status(404).json({ error: 'Moodboard not found' });
+  res.json(deck);
+});
+
+app.post('/api/moodboard-studio', (req, res) => {
+  const decks = readMoodboardDecks(req.session.orgSlug);
+  const now = new Date().toISOString();
+  const deck = Object.assign(BLANK_MOODBOARD_DECK(), { id: Date.now() + '-' + Math.random().toString(36).slice(2, 8), createdAt: now, updatedAt: now });
+  decks.push(deck);
+  writeMoodboardDecks(req.session.orgSlug, decks);
+  res.json(deck);
+});
+
+app.put('/api/moodboard-studio/:id', (req, res) => {
+  const decks = readMoodboardDecks(req.session.orgSlug);
+  const idx = decks.findIndex(d => d.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Moodboard not found' });
+  const { id, createdAt, ...rest } = req.body || {};
+  decks[idx] = Object.assign({}, decks[idx], rest, { id: decks[idx].id, createdAt: decks[idx].createdAt, updatedAt: new Date().toISOString() });
+  writeMoodboardDecks(req.session.orgSlug, decks);
+  res.json(decks[idx]);
+});
+
+app.delete('/api/moodboard-studio/:id', (req, res) => {
+  let decks = readMoodboardDecks(req.session.orgSlug);
+  decks = decks.filter(d => d.id !== req.params.id);
+  writeMoodboardDecks(req.session.orgSlug, decks);
   res.json({ ok: true });
 });
 
-app.delete('/api/moodboard', (req, res) => {
-  writeMoodboard(req.session.orgSlug, []);
+// Bookings are shared across every deck for this client, not per-deck — per §4's own
+// recommendation, so availability stays consistent no matter which deck a session is booked from.
+app.get('/api/moodboard-bookings', (req, res) => res.json(readMoodboardBookings(req.session.orgSlug)));
+
+app.post('/api/moodboard-bookings', (req, res) => {
+  const bookings = readMoodboardBookings(req.session.orgSlug);
+  const b = req.body || {};
+  if (!b.date || !b.start || !b.hours) return res.status(400).json({ error: 'date, start, and hours are required' });
+  b.id = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  bookings.push(b);
+  writeMoodboardBookings(req.session.orgSlug, bookings);
+  res.json(b);
+});
+
+app.delete('/api/moodboard-bookings/:id', (req, res) => {
+  let bookings = readMoodboardBookings(req.session.orgSlug);
+  bookings = bookings.filter(b => b.id !== req.params.id);
+  writeMoodboardBookings(req.session.orgSlug, bookings);
   res.json({ ok: true });
 });
 
@@ -836,9 +889,11 @@ app.post('/api/canva/autofill/brief/:id', async (req, res) => {
 
 // --- Master config API (scoped to the logged-in org) ---
 function resolveConfigPath(org, id) {
-  if (org.useSharedConfig) {
-    const f = BURANCHI_CONFIG_FILES[id];
-    return f ? f.path : null;
+  // Shared-config orgs (Buranchi) read the 4 original files from the external Marketing/_context
+  // folder. A config key added later (like brand-visual-identity) that was never part of that
+  // external set falls through to the normal per-org local file instead of a hard 404.
+  if (org.useSharedConfig && BURANCHI_CONFIG_FILES[id]) {
+    return BURANCHI_CONFIG_FILES[id].path;
   }
   const meta = CONFIG_LABELS[id];
   return meta ? path.join(orgConfigDir(org.slug), meta.file) : null;
