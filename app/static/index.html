@@ -654,9 +654,18 @@
                     <option value="asc">Asc</option>
                   </select>
                 </div>
+                <div class="vizref-filter-group">
+                  <label class="f-label" style="margin:0;">Size</label>
+                  <select id="brief-vizref-density">
+                    <option value="large">Large (fewer per page)</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="small">Small</option>
+                    <option value="xsmall">X-Small (more per page)</option>
+                  </select>
+                </div>
               </div>
             </div>
-            <div id="brief-vizref-grid" class="moodboard-grid" style="margin-top:12px;"></div>
+            <div id="brief-vizref-grid" class="moodboard-grid density-medium" style="margin-top:12px;"></div>
             <div id="brief-vizref-pagination" class="pagination" style="display:none;"></div>
             <div class="empty" id="brief-vizref-empty" style="display:none;">
               <div class="big">Nothing here yet</div>

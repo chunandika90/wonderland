@@ -420,6 +420,23 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .vizref-card.is-portrait img{height:200px;}
 .vizref-card .vizref-label{font-size:10.5px; padding:5px 8px 0; color:var(--fg-muted); background:var(--surface); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .vizref-card .vizref-date{font-size:9.5px; padding:0 8px 6px; color:var(--fg-soft); background:var(--surface);}
+
+/* Thumbnail density for the Campaign Brief reference picker specifically — fewer items per page
+   means each one gets shown bigger, more items means smaller, so "how many results" and "how big
+   each result is" are the same one control instead of two unrelated settings. Medium matches the
+   grid's original base size (unscoped .vizref-card rules above). */
+#brief-vizref-grid.density-large{grid-template-columns:repeat(auto-fill, minmax(280px,1fr));}
+#brief-vizref-grid.density-large .vizref-card img{height:240px;}
+#brief-vizref-grid.density-large .vizref-card.is-portrait img{height:340px;}
+#brief-vizref-grid.density-small{grid-template-columns:repeat(auto-fill, minmax(140px,1fr));}
+#brief-vizref-grid.density-small .vizref-card img{height:80px;}
+#brief-vizref-grid.density-small .vizref-card.is-portrait img{height:130px;}
+#brief-vizref-grid.density-small .vizref-card .vizref-label{font-size:9.5px;}
+#brief-vizref-grid.density-xsmall{grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:8px;}
+#brief-vizref-grid.density-xsmall .vizref-card img{height:60px;}
+#brief-vizref-grid.density-xsmall .vizref-card.is-portrait img{height:95px;}
+#brief-vizref-grid.density-xsmall .vizref-card .vizref-label{font-size:9px; padding:3px 5px 0;}
+#brief-vizref-grid.density-xsmall .vizref-card .vizref-date{display:none;}
 .vizref-filter-bar{background:var(--canvas);}
 .vizref-filter-row{display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-top:12px;}
 .vizref-filter-group{display:flex; align-items:center; gap:6px; flex-wrap:nowrap;}

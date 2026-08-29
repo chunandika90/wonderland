@@ -118,6 +118,7 @@ async function init(){
   $('brief-vizref-date-to').addEventListener('change', resetBriefVizrefPageAndRender);
   $('brief-vizref-sort-field').addEventListener('change', resetBriefVizrefPageAndRender);
   $('brief-vizref-sort-dir').addEventListener('change', resetBriefVizrefPageAndRender);
+  $('brief-vizref-density').addEventListener('change', resetBriefVizrefPageAndRender);
   $('btn-brief-vizref-date-clear').addEventListener('click', () => {
     $('brief-vizref-date-from').value = '';
     $('brief-vizref-date-to').value = '';
@@ -936,7 +937,9 @@ function renderBriefRefImages(){
 }
 
 let briefVizrefSource = 'competitor';
-const BRIEF_VIZREF_PAGE_SIZE = 24;
+// Density and page size are the same knob on purpose: fewer results per page means each one can
+// afford to be shown bigger, more results means smaller — not two separate unrelated settings.
+const BRIEF_VIZREF_DENSITY_PAGE_SIZE = { large: 12, medium: 24, small: 48, xsmall: 96 };
 let briefVizrefPage = 0;
 
 // Any change to source/search/sort/date should jump back to page 1 — otherwise a filter that
@@ -1013,11 +1016,15 @@ function renderBriefVizrefGrid(){
       : (a.date || '').localeCompare(b.date || '');
     return cmp * sortDir;
   });
+  const density = $('brief-vizref-density').value;
+  const pageSize = BRIEF_VIZREF_DENSITY_PAGE_SIZE[density] || BRIEF_VIZREF_DENSITY_PAGE_SIZE.medium;
+  grid.className = 'moodboard-grid density-' + density;
+
   const totalItems = items.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / BRIEF_VIZREF_PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   if(briefVizrefPage >= totalPages) briefVizrefPage = totalPages - 1;
   if(briefVizrefPage < 0) briefVizrefPage = 0;
-  const pageItems = items.slice(briefVizrefPage * BRIEF_VIZREF_PAGE_SIZE, (briefVizrefPage + 1) * BRIEF_VIZREF_PAGE_SIZE);
+  const pageItems = items.slice(briefVizrefPage * pageSize, (briefVizrefPage + 1) * pageSize);
 
   if(!totalItems){
     grid.innerHTML = '';
