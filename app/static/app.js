@@ -113,6 +113,7 @@ async function init(){
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
   });
+  $('brief-vizref-search').addEventListener('input', renderBriefVizrefGrid);
   $('brief-vizref-date-from').addEventListener('change', renderBriefVizrefGrid);
   $('brief-vizref-date-to').addEventListener('change', renderBriefVizrefGrid);
   $('btn-brief-vizref-date-clear').addEventListener('click', () => {
@@ -954,6 +955,7 @@ function renderBriefVizrefGrid(){
   const grid = $('brief-vizref-grid');
   if(!grid) return;
   const empty = $('brief-vizref-empty');
+  const search = ($('brief-vizref-search').value || '').trim().toLowerCase();
   let items = [];
   if(briefVizrefSource === 'competitor'){
     const dateFrom = $('brief-vizref-date-from').value;
@@ -963,6 +965,7 @@ function renderBriefVizrefGrid(){
         const d = p.date || (p.timestamp || '').slice(0, 10);
         if(dateFrom && d < dateFrom) return false;
         if(dateTo && d > dateTo) return false;
+        if(search && !`${p.brand_name||''} ${p.category||''} ${p.caption||''}`.toLowerCase().includes(search)) return false;
         return true;
       })
       .slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''))
@@ -970,12 +973,14 @@ function renderBriefVizrefGrid(){
         refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url),
         date: p.date || (p.timestamp || '').slice(0, 10)
       }));
-    $('brief-vizref-empty-text').textContent = (dateFrom || dateTo) ? 'No competitor posts in that date range.' : 'No competitor data scraped yet — visit the Competitor Dashboard.';
+    $('brief-vizref-empty-text').textContent = (dateFrom || dateTo || search) ? 'No competitor posts match that filter.' : 'No competitor data scraped yet — visit the Competitor Dashboard.';
   } else {
-    items = (DIRECTORY_A_MANIFEST || []).filter(f => f.hasThumbnail).slice(0, 40).map(f => ({
-      refKey: 'internal:' + f.id, name: f.name, kind: 'internal', url: withBase('/media/directory-a/' + currentOrgSlug + '/' + f.id + '.jpg')
-    }));
-    $('brief-vizref-empty-text').textContent = 'No internal archive synced yet — link a Google Drive folder in Directory A.';
+    items = (DIRECTORY_A_MANIFEST || []).filter(f => f.hasThumbnail)
+      .filter(f => !search || `${f.name||''} ${f.path||''}`.toLowerCase().includes(search))
+      .slice(0, 40).map(f => ({
+        refKey: 'internal:' + f.id, name: f.name, kind: 'internal', url: withBase('/media/directory-a/' + currentOrgSlug + '/' + f.id + '.jpg')
+      }));
+    $('brief-vizref-empty-text').textContent = search ? 'No internal files match that search.' : 'No internal archive synced yet — link a Google Drive folder in Directory A.';
   }
   if(!items.length){
     grid.innerHTML = '';
@@ -985,7 +990,7 @@ function renderBriefVizrefGrid(){
   if(empty) empty.style.display = 'none';
   grid.innerHTML = items.map(item => `
     <div class="vizref-card ${briefRefImages.some(i => i.refKey === item.refKey) ? 'selected' : ''}" data-vizref-key="${esc(item.refKey)}">
-      <img src="${esc(item.url)}" alt="${esc(item.name)}" loading="lazy">
+      <img src="${esc(item.url)}" alt="${esc(item.name)}" loading="lazy" onload="this.closest('.vizref-card').classList.toggle('is-portrait', this.naturalHeight > this.naturalWidth)">
       <div class="vizref-label">${esc(item.name)}</div>
       ${item.date ? `<div class="vizref-date">${esc(fmtDate(item.date))}</div>` : ''}
     </div>
@@ -1277,7 +1282,7 @@ function renderBoardRefColumn(cat, refs, decision){
   }
   grid.innerHTML = chosen.map(r => `
     <div class="vizref-card board-ref-chosen" title="${esc(r.name)}">
-      <img src="${esc(mediaUrl(r.url))}" loading="lazy">
+      <img src="${esc(mediaUrl(r.url))}" loading="lazy" onload="this.closest('.vizref-card').classList.toggle('is-portrait', this.naturalHeight > this.naturalWidth)">
       <div class="vizref-label">${esc(r.name)}</div>
     </div>
   `).join('');
