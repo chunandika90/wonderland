@@ -1255,6 +1255,7 @@ function renderBoardBriefRecap(brief){
   $('board-title').textContent = 'Campaign Board — ' + (brief.title || 'Untitled');
   $('board-subtitle').textContent = 'Every reference and decision below is scoped to this brief — refine it in plain language at the bottom.';
   const row = (lab, val) => val ? `<div class="board-brief-row"><div class="board-brief-label">${esc(lab)}</div><div class="board-brief-val">${esc(val)}</div></div>` : '';
+  const vc = brief.visualCopywriting;
   $('board-brief-recap').innerHTML = `
     <div class="board-brief-row"><div class="board-brief-label">Campaign</div><div class="board-brief-val" style="font-weight:700; font-size:15px;">${esc(brief.title || 'Untitled')}</div></div>
     ${row('Background', brief.background)}
@@ -1262,6 +1263,13 @@ function renderBoardBriefRecap(brief){
     ${row('Objective', brief.objective)}
     ${row('Channels', brief.channels)}
     ${row('Terms / constraints', brief.terms)}
+    ${vc ? `
+    <div class="board-brief-row" style="margin-top:4px; padding-top:12px; border-top:1px solid var(--border);">
+      <div class="board-brief-label">Generated post copy</div>
+    </div>
+    ${row('Headline', vc.headline)}
+    ${row('Sub-headline', vc.sub)}
+    ${row('Caption', vc.caption)}` : ''}
   `;
 }
 
@@ -1329,6 +1337,7 @@ function renderBoardRefColumn(cat, refs, decision){
 
 function renderBoardJudgeOutput(version){
   const pb = version.polishedBrief || {};
+  const vc = currentBoardBrief && currentBoardBrief.visualCopywriting;
   const row = (lab, val) => `<div class="detail-row"><div class="detail-lab">${esc(lab)}</div><div class="detail-val">${esc(val || '—')}</div></div>`;
   $('board-judge-output').innerHTML = `
     <div class="card" style="margin-top:0;">
@@ -1338,6 +1347,13 @@ function renderBoardJudgeOutput(version){
       ${row('Objective', pb.objective)}
       ${row('Channels', pb.channels)}
       ${row('Terms / constraints', pb.terms)}
+      ${vc ? `
+      <div class="board-brief-row" style="margin-top:4px; padding-top:12px; border-top:1px solid var(--border);">
+        <div class="board-brief-label">Generated post copy</div>
+      </div>
+      ${row('Headline', vc.headline)}
+      ${row('Sub-headline', vc.sub)}
+      ${row('Caption', vc.caption)}` : ''}
     </div>`;
 }
 
