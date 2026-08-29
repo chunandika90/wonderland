@@ -1229,7 +1229,7 @@ function renderBoardRefColumn(cat, refs, decision){
   }
   grid.innerHTML = refs.map(r => `
     <div class="vizref-card ${chosenKeys.has(r.refKey) ? 'board-ref-chosen' : ''}" title="${esc(r.name)}">
-      <img src="${esc(r.url)}" loading="lazy">
+      <img src="${esc(mediaUrl(r.url))}" loading="lazy">
       <div class="vizref-label">${esc(r.name)}</div>
     </div>
   `).join('');
