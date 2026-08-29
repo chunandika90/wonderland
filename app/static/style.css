@@ -418,7 +418,8 @@ table.plan-table tr:hover td{background:var(--canvas);}
 @media (max-width:1100px){ .board-ref-grid{grid-template-columns:repeat(2, 1fr);} }
 .board-ref-col{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px;}
 .board-ref-col-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--fg-soft); margin-bottom:10px;}
-.board-ref-cards{display:grid; grid-template-columns:1fr 1fr; gap:8px; max-height:340px; overflow-y:auto;}
+.board-ref-cards{display:grid; grid-template-columns:1fr; gap:8px;}
+.board-ref-cards .vizref-card img{height:220px;}
 .board-ref-empty{grid-column:1/-1; font-size:12px; color:var(--fg-muted); padding:10px 0;}
 .board-ref-chosen{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-50);}
 .board-ext-search{display:flex; flex-direction:column; gap:6px; margin-bottom:10px;}

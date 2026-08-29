@@ -1227,8 +1227,15 @@ function renderBoardRefColumn(cat, refs, decision){
     grid.innerHTML = `<div class="board-ref-empty">No candidates${cat === 'C' ? ' — search Pinterest/Behance above' : ' yet'}.</div>`;
     return;
   }
-  grid.innerHTML = refs.map(r => `
-    <div class="vizref-card ${chosenKeys.has(r.refKey) ? 'board-ref-chosen' : ''}" title="${esc(r.name)}">
+  // Only show what the Judge actually picked for this category — the reasoning below only
+  // explains the winner, so showing every unpicked candidate here read as unexplained noise.
+  const chosen = refs.filter(r => chosenKeys.has(r.refKey));
+  if(!chosen.length){
+    grid.innerHTML = `<div class="board-ref-empty">${refs.length} candidate${refs.length===1?'':'s'} available, none picked for this category.</div>`;
+    return;
+  }
+  grid.innerHTML = chosen.map(r => `
+    <div class="vizref-card board-ref-chosen" title="${esc(r.name)}">
       <img src="${esc(mediaUrl(r.url))}" loading="lazy">
       <div class="vizref-label">${esc(r.name)}</div>
     </div>
