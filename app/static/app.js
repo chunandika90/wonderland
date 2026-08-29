@@ -1307,6 +1307,7 @@ async function openCampaignBoardPage(briefId){
   $('board-ext-status').textContent = '';
   $('board-empty').style.display = 'none';
   $('board-content').style.display = 'block';
+  boardViewingIdx = null;
   renderBoard();
 }
 
@@ -1362,46 +1363,96 @@ function renderBoardJudgeOutput(version){
     </div>`;
 }
 
-function renderBoard(){
+// null = always show the latest version (normal state, e.g. right after sending feedback).
+// Set to a specific index when the user clicks "Expand" on an older version to actually look at
+// it — the reference grid + AI Recommendation card above switch to that version's data too, not
+// just a one-line snippet inside the log.
+let boardViewingIdx = null;
+
+function renderBoard(viewIdx){
   const versions = boardVersions();
   if(!versions.length) return;
-  const latest = versions[versions.length - 1];
-  ['A','B','C','D'].forEach(cat => renderBoardRefColumn(cat, (latest.references && latest.references[cat]) || [], latest.decision || {}));
-  renderBoardJudgeOutput(latest);
-  renderBoardLog(versions);
+  if(viewIdx !== undefined) boardViewingIdx = viewIdx;
+  const activeIdx = (boardViewingIdx !== null && versions[boardViewingIdx]) ? boardViewingIdx : versions.length - 1;
+  const shown = versions[activeIdx];
+  ['A','B','C','D'].forEach(cat => renderBoardRefColumn(cat, (shown.references && shown.references[cat]) || [], shown.decision || {}));
+  renderBoardJudgeOutput(shown);
+  renderBoardLog(versions, activeIdx);
 }
 
-function renderBoardLog(versions){
+// Field labels covering every place a version can differ from the one before it — not just
+// post copy, so "what actually changed" answers the question honestly for any kind of feedback.
+const BOARD_DIFF_FIELDS = [
+  ['polishedBrief', 'background', 'Background'],
+  ['polishedBrief', 'audience', 'Audience'],
+  ['polishedBrief', 'objective', 'Objective'],
+  ['polishedBrief', 'channels', 'Channels'],
+  ['polishedBrief', 'terms', 'Terms / constraints'],
+  ['postCopy', 'headline', 'Headline'],
+  ['postCopy', 'sub', 'Sub-headline'],
+  ['postCopy', 'caption', 'Caption'],
+];
+const BOARD_DIFF_REFS = [
+  ['primary', 'Primary reference'],
+  ['supporting', 'Supporting reference'],
+  ['marketBenchmark', 'Market benchmark reference'],
+  ['personal', 'Personal upload reference'],
+];
+
+function describeVersionChanges(prev, curr, brief){
+  if(!prev){
+    return 'Initial version — no prior version to compare against.';
+  }
+  const prevCopy = prev.postCopy || (brief && brief.visualCopywriting) || {};
+  const currCopy = curr.postCopy || (brief && brief.visualCopywriting) || {};
+  const lines = [];
+  BOARD_DIFF_FIELDS.forEach(([group, key, label]) => {
+    const src = group === 'postCopy' ? [prevCopy, currCopy] : [prev.polishedBrief || {}, curr.polishedBrief || {}];
+    const before = (src[0][key] || '').trim();
+    const after = (src[1][key] || '').trim();
+    if(before !== after){
+      lines.push(`${label}:\n  before: ${before || '(empty)'}\n  after:  ${after || '(empty)'}`);
+    }
+  });
+  const prevDecision = prev.decision || {};
+  const currDecision = curr.decision || {};
+  BOARD_DIFF_REFS.forEach(([key, label]) => {
+    const before = prevDecision[key] ? prevDecision[key].refKey : null;
+    const after = currDecision[key] ? currDecision[key].refKey : null;
+    if(before !== after){
+      lines.push(`${label}:\n  before: ${before || '(none)'}\n  after:  ${after || '(none)'}`);
+    }
+  });
+  return lines.length ? lines.join('\n\n') : 'No fields changed from the previous version.';
+}
+
+function renderBoardLog(versions, activeIdx){
   const feedbacks = currentBoard.contents.filter(c => c.role === 'user').map(c => c.parts[0].text);
+  const latestIdx = versions.length - 1;
   $('board-log').innerHTML = versions.map((v, idx) => {
-    const isLatest = idx === versions.length - 1;
+    const isActive = idx === activeIdx;
     const turnIndex = idx * 2 + 1;
     const approved = currentBoard.approvedTurnIndex === turnIndex;
+    const diffText = describeVersionChanges(idx > 0 ? versions[idx - 1] : null, v, currentBoardBrief);
     return `
     <div class="chat-row model">
-      <div class="board-version-card">
+      <div class="board-version-card ${isActive ? 'board-version-active' : ''}">
         <div class="board-version-head">
           <b>Version ${v.version}</b>
+          ${idx === latestIdx ? '<span class="sub-inline">(latest)</span>' : ''}
           ${approved ? '<span class="event-flag">approved</span>' : ''}
           ${feedbacks[idx] ? `<span class="sub-inline">— "${esc(feedbacks[idx])}"</span>` : ''}
-          <button class="btn btn-outline btn-sm" style="margin-left:auto;" data-board-toggle="${idx}">${isLatest ? 'Collapse' : 'Expand'}</button>
+          <button class="btn btn-outline btn-sm" style="margin-left:auto;" data-board-toggle="${idx}">${isActive ? 'Viewing above ↑' : 'Expand'}</button>
           ${!approved ? `<button class="btn btn-accent btn-sm" data-board-approve="${idx}">Approve this version</button>` : ''}
         </div>
-        <div class="board-version-body" style="display:${isLatest ? 'block' : 'none'};">
-          <div class="caption-box">${esc((v.postCopy && v.postCopy.headline) || (v.polishedBrief && v.polishedBrief.objective) || '')}</div>
-        </div>
+        <div class="board-brief-label" style="margin-top:10px;">What changed in this version</div>
+        <textarea class="board-version-diff" readonly>${esc(diffText)}</textarea>
       </div>
     </div>`;
   }).join('');
 
   $('board-log').querySelectorAll('[data-board-toggle]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const card = btn.closest('.board-version-card');
-      const body = card.querySelector('.board-version-body');
-      const open = body.style.display !== 'none';
-      body.style.display = open ? 'none' : 'block';
-      btn.textContent = open ? 'Expand' : 'Collapse';
-    });
+    btn.addEventListener('click', () => renderBoard(parseInt(btn.dataset.boardToggle, 10)));
   });
   $('board-log').querySelectorAll('[data-board-approve]').forEach(btn => {
     btn.addEventListener('click', () => approveBoardVersion(parseInt(btn.dataset.boardApprove, 10)));
@@ -1413,7 +1464,7 @@ async function approveBoardVersion(idx){
   const turnIndex = idx * 2 + 1;
   await api('/api/campaign-boards/' + currentBoard.id + '/approve', { method:'POST', body: JSON.stringify({ turnIndex }) });
   currentBoard.approvedTurnIndex = turnIndex;
-  renderBoardLog(boardVersions());
+  renderBoard();
 }
 
 async function searchBoardExternal(){
@@ -1449,6 +1500,7 @@ async function sendBoardMessage(){
     });
     if(res && res.ok){
       currentBoard = await api('/api/campaign-boards/' + currentBoard.id);
+      boardViewingIdx = null; // a fresh version just landed — always jump back to viewing it
       renderBoard();
       $('board-send-status').textContent = 'Updated — new version added below.';
       setTimeout(() => { if($('board-send-status').textContent === 'Updated — new version added below.') $('board-send-status').textContent = ''; }, 4000);
