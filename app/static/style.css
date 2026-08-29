@@ -421,9 +421,12 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .vizref-card .vizref-label{font-size:10.5px; padding:5px 8px 0; color:var(--fg-muted); background:var(--surface); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .vizref-card .vizref-date{font-size:9.5px; padding:0 8px 6px; color:var(--fg-soft); background:var(--surface);}
 .vizref-filter-bar{background:var(--canvas);}
-.vizref-filter-row{display:flex; align-items:center; gap:20px; flex-wrap:wrap; margin-top:12px;}
-.vizref-filter-group{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
-.vizref-filter-group select, .vizref-filter-group input[type="date"]{padding:6px 9px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; background:var(--surface); color:var(--fg); font-family:inherit;}
+.vizref-filter-row{display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-top:12px;}
+.vizref-filter-group{display:flex; align-items:center; gap:6px; flex-wrap:nowrap;}
+.vizref-filter-group .f-label{font-size:11px; white-space:nowrap;}
+.vizref-sort-group{margin-left:auto;}
+.vizref-filter-group select, .vizref-filter-group input[type="date"]{padding:5px 7px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:11.5px; background:var(--surface); color:var(--fg); font-family:inherit;}
+.vizref-filter-group select{width:auto;}
 .vizref-card.selected{border-color:var(--accent);}
 .vizref-card.selected::after{content:"✓"; position:absolute; top:6px; right:6px; width:20px; height:20px; border-radius:999px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font-size:11px; font-weight:700;}
 
