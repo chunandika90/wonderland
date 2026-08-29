@@ -950,7 +950,8 @@ function renderBriefVizrefGrid(){
     items = COMPETITOR_POSTS.filter(p => p.display_url)
       .slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''))
       .slice(0, 40).map(p => ({
-        refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url)
+        refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url),
+        date: p.date || (p.timestamp || '').slice(0, 10)
       }));
     $('brief-vizref-empty-text').textContent = 'No competitor data scraped yet — visit the Competitor Dashboard.';
   } else {
@@ -969,6 +970,7 @@ function renderBriefVizrefGrid(){
     <div class="vizref-card ${briefRefImages.some(i => i.refKey === item.refKey) ? 'selected' : ''}" data-vizref-key="${esc(item.refKey)}">
       <img src="${esc(item.url)}" alt="${esc(item.name)}" loading="lazy">
       <div class="vizref-label">${esc(item.name)}</div>
+      ${item.date ? `<div class="vizref-date">${esc(fmtDate(item.date))}</div>` : ''}
     </div>
   `).join('');
   grid.querySelectorAll('[data-vizref-key]').forEach((card, i) => {
