@@ -13,25 +13,28 @@
 @font-face{font-family:'Albura'; src:url('fonts/albura/Albura-Black.otf') format('opentype'); font-weight:800; font-style:normal; font-display:swap;}
 
 :root{
-  --canvas:#F2F4FC;
+  /* Clean/minimal-premium palette: warm neutral paper instead of a tinted blue-white, near-black
+     ink instead of pure #000, and a single restrained deep-navy accent instead of an electric
+     #0000FE — agency-premium reads as "confident but quiet," not loud. */
+  --canvas:#F7F6F2;
   --surface:#FFFFFF;
-  --border:#E1E5F5;
-  --fg:#121212;
-  --fg-muted:#5A5F6E;
-  --fg-soft:#8A8FA0;
-  --accent:#0000FE;
-  --accent-50:#E6E6FF;
-  --accent-dark:#0000B8;
-  --accent-hover:#0000CC;
-  --accent-border:#C2C2FF;
+  --border:#E7E4DC;
+  --fg:#1C1B19;
+  --fg-muted:#6B6860;
+  --fg-soft:#9A968C;
+  --accent:#21304A;
+  --accent-50:#EEF1F5;
+  --accent-dark:#141D2E;
+  --accent-hover:#2C3E5F;
+  --accent-border:#C9D0DC;
   --on-accent:#FFFFFF;
-  --success:#22C55E;
-  --success-bg:#EAFBF0;
-  --radius-lg:18px;
-  --radius-md:14px;
-  --radius-sm:10px;
-  --shadow-card:0 1px 2px rgba(18,18,18,.05), 0 1px 8px rgba(18,18,18,.04);
-  --shadow-pop:0 4px 20px rgba(18,18,18,.08);
+  --success:#1F7A4D;
+  --success-bg:#EAF4EC;
+  --radius-lg:16px;
+  --radius-md:12px;
+  --radius-sm:8px;
+  --shadow-card:0 1px 2px rgba(28,27,25,.04), 0 2px 10px rgba(28,27,25,.05);
+  --shadow-pop:0 10px 30px rgba(28,27,25,.10);
 
   /* Buranchi brand tokens — used only inside .mockup post previews, never theme-swapped */
   --b-taupe:#726654; --b-espresso:#2B221B; --b-yellow:#FFF256; --b-green:#CBE55E;
@@ -39,27 +42,27 @@
 }
 
 :root[data-theme="dark"]{
-  /* Night mode uses the brand green instead of blue — matches the deck's own dark cover slide
-     (neon green mark on near-black). Day mode (bare :root above) stays blue. */
-  --canvas:#121212;
-  --surface:#1B1D19;
-  --border:#2C2E29;
-  --fg:#F2F3FA;
-  --fg-muted:#A7AC9F;
-  --fg-soft:#6D7268;
-  --accent:#89FF00;
-  --accent-50:#1E2A0A;
-  --accent-dark:#A3FF33;
-  --accent-hover:#6FD600;
-  --accent-border:#3A4A1A;
-  --on-accent:#121212;
-  --success:#3DD68C;
+  /* Night mode keeps the brand's green hue (per the deck's dark cover slide) but muted to a
+     desaturated sage instead of neon #89FF00 — same premium-quiet intent as the light palette. */
+  --canvas:#16181B;
+  --surface:#1E2124;
+  --border:#2C2F33;
+  --fg:#EDEEEC;
+  --fg-muted:#A3A79E;
+  --fg-soft:#6D7169;
+  --accent:#6FB583;
+  --accent-50:#182420;
+  --accent-dark:#8FCC9F;
+  --accent-hover:#5B9C6D;
+  --accent-border:#33473A;
+  --on-accent:#0E1210;
+  --success:#4ADE80;
   --success-bg:#132A20;
   --shadow-card:0 1px 2px rgba(0,0,0,.35), 0 1px 8px rgba(0,0,0,.3);
-  --shadow-pop:0 4px 24px rgba(0,0,0,.55);
+  --shadow-pop:0 10px 32px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box;}
-body{margin:0; font-family:'Albura', ui-sans-serif, system-ui, sans-serif; background:var(--canvas); color:var(--fg); -webkit-font-smoothing:antialiased;}
+body{margin:0; font-family:'Inter', ui-sans-serif, system-ui, sans-serif; background:var(--canvas); color:var(--fg); -webkit-font-smoothing:antialiased;}
 a{color:inherit; text-decoration:none;}
 button{font-family:inherit; cursor:pointer;}
 
@@ -595,9 +598,9 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .chat-row{display:flex;}
 .chat-row.user{justify-content:flex-end;}
 .chat-row.model{justify-content:flex-start;}
-.chat-bubble{max-width:72%; padding:10px 14px; border-radius:14px; font-size:13.5px; line-height:1.55; white-space:pre-wrap;}
+.chat-bubble{max-width:72%; padding:11px 16px; border-radius:16px; font-size:13.5px; line-height:1.6; white-space:pre-wrap;}
 .chat-row.user .chat-bubble{background:var(--accent); color:var(--on-accent); border-bottom-right-radius:4px;}
-.chat-row.model .chat-bubble{background:var(--canvas); color:var(--fg); border-bottom-left-radius:4px;}
+.chat-row.model .chat-bubble{background:var(--surface); color:var(--fg); border:1px solid var(--border); border-bottom-left-radius:4px; box-shadow:var(--shadow-card);}
 .chat-row.error .chat-bubble{background:#FDECEC; color:#DC2626;}
 .chat-token-row{margin-top:-8px;}
 .chat-token-meta{font-size:10.5px; color:var(--fg-soft); padding:0 6px;}
