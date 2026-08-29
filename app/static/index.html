@@ -631,15 +631,33 @@
               <button type="button" class="tab-btn active" id="brief-vizref-competitor" data-src="competitor">Competitor database</button>
               <button type="button" class="tab-btn" id="brief-vizref-internal" data-src="internal">Internal database</button>
             </div>
-            <input type="text" id="brief-vizref-search" placeholder="Search by name, brand, or category…" style="margin-top:10px; width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:13px; background:var(--canvas); color:var(--fg); font-family:inherit;">
-            <div class="vizref-date-filter" id="brief-vizref-date-filter" style="margin-top:10px;">
-              <label class="f-label" style="margin:0;">From</label>
-              <input type="date" id="brief-vizref-date-from">
-              <label class="f-label" style="margin:0;">to</label>
-              <input type="date" id="brief-vizref-date-to">
-              <button class="btn btn-outline btn-sm" type="button" id="btn-brief-vizref-date-clear">Clear</button>
+            <div class="card vizref-filter-bar" style="margin-top:10px; padding:14px 16px;">
+              <div class="board-brief-label" style="margin-bottom:10px;">Filters</div>
+              <input type="text" id="brief-vizref-search" placeholder="Search by name, brand, or category…" style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:13px; background:var(--canvas); color:var(--fg); font-family:inherit;">
+              <div class="vizref-filter-row">
+                <div class="vizref-filter-group">
+                  <label class="f-label" style="margin:0;">Sort by</label>
+                  <select id="brief-vizref-sort-field">
+                    <option value="date">Date</option>
+                    <option value="name">Name</option>
+                    <option value="likes" id="brief-vizref-sort-likes-opt">Likes / engagement</option>
+                  </select>
+                  <select id="brief-vizref-sort-dir">
+                    <option value="desc">Descending</option>
+                    <option value="asc">Ascending</option>
+                  </select>
+                </div>
+                <div class="vizref-filter-group">
+                  <label class="f-label" style="margin:0;">From</label>
+                  <input type="date" id="brief-vizref-date-from">
+                  <label class="f-label" style="margin:0;">to</label>
+                  <input type="date" id="brief-vizref-date-to">
+                  <button class="btn btn-outline btn-sm" type="button" id="btn-brief-vizref-date-clear">Clear dates</button>
+                </div>
+              </div>
             </div>
             <div id="brief-vizref-grid" class="moodboard-grid" style="margin-top:12px;"></div>
+            <div id="brief-vizref-pagination" class="pagination" style="display:none;"></div>
             <div class="empty" id="brief-vizref-empty" style="display:none;">
               <div class="big">Nothing here yet</div>
               <div id="brief-vizref-empty-text">No competitor data scraped yet — visit the Competitor Dashboard.</div>

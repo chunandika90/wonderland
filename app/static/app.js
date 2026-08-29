@@ -113,13 +113,15 @@ async function init(){
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
   });
-  $('brief-vizref-search').addEventListener('input', renderBriefVizrefGrid);
-  $('brief-vizref-date-from').addEventListener('change', renderBriefVizrefGrid);
-  $('brief-vizref-date-to').addEventListener('change', renderBriefVizrefGrid);
+  $('brief-vizref-search').addEventListener('input', resetBriefVizrefPageAndRender);
+  $('brief-vizref-date-from').addEventListener('change', resetBriefVizrefPageAndRender);
+  $('brief-vizref-date-to').addEventListener('change', resetBriefVizrefPageAndRender);
+  $('brief-vizref-sort-field').addEventListener('change', resetBriefVizrefPageAndRender);
+  $('brief-vizref-sort-dir').addEventListener('change', resetBriefVizrefPageAndRender);
   $('btn-brief-vizref-date-clear').addEventListener('click', () => {
     $('brief-vizref-date-from').value = '';
     $('brief-vizref-date-to').value = '';
-    renderBriefVizrefGrid();
+    resetBriefVizrefPageAndRender();
   });
 
   $('btn-board-ext-search').addEventListener('click', searchBoardExternal);
@@ -934,13 +936,24 @@ function renderBriefRefImages(){
 }
 
 let briefVizrefSource = 'competitor';
+const BRIEF_VIZREF_PAGE_SIZE = 24;
+let briefVizrefPage = 0;
+
+// Any change to source/search/sort/date should jump back to page 1 — otherwise a filter that
+// shrinks the result set can leave the grid stranded on a now-empty page.
+function resetBriefVizrefPageAndRender(){
+  briefVizrefPage = 0;
+  renderBriefVizrefGrid();
+}
 
 function setBriefVizrefSource(src){
   briefVizrefSource = src;
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.src === src));
-  // Directory A files don't carry a post date, so the range filter only makes sense for competitor.
-  $('brief-vizref-date-filter').style.display = src === 'competitor' ? 'flex' : 'none';
-  renderBriefVizrefGrid();
+  // Directory A has no engagement concept — only offer that sort field for competitor posts.
+  // (Falls back to Date if "Likes" was selected and the source switches to internal.)
+  $('brief-vizref-sort-likes-opt').style.display = src === 'competitor' ? 'block' : 'none';
+  if(src !== 'competitor' && $('brief-vizref-sort-field').value === 'likes') $('brief-vizref-sort-field').value = 'date';
+  resetBriefVizrefPageAndRender();
 }
 
 function toggleBriefVizref(item){
@@ -956,10 +969,12 @@ function renderBriefVizrefGrid(){
   if(!grid) return;
   const empty = $('brief-vizref-empty');
   const search = ($('brief-vizref-search').value || '').trim().toLowerCase();
+  const dateFrom = $('brief-vizref-date-from').value;
+  const dateTo = $('brief-vizref-date-to').value;
+  const sortField = $('brief-vizref-sort-field').value;
+  const sortDir = $('brief-vizref-sort-dir').value === 'asc' ? 1 : -1;
   let items = [];
   if(briefVizrefSource === 'competitor'){
-    const dateFrom = $('brief-vizref-date-from').value;
-    const dateTo = $('brief-vizref-date-to').value;
     items = COMPETITOR_POSTS.filter(p => p.display_url)
       .filter(p => {
         const d = p.date || (p.timestamp || '').slice(0, 10);
@@ -968,27 +983,50 @@ function renderBriefVizrefGrid(){
         if(search && !`${p.brand_name||''} ${p.category||''} ${p.caption||''}`.toLowerCase().includes(search)) return false;
         return true;
       })
-      .slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''))
-      .slice(0, 40).map(p => ({
+      .map(p => ({
         refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url),
-        date: p.date || (p.timestamp || '').slice(0, 10)
+        date: p.date || (p.timestamp || '').slice(0, 10),
+        sortName: p.brand_name || '', likes: p.likes_hidden ? (p.comments || 0) : (p.likes_display || 0)
       }));
     $('brief-vizref-empty-text').textContent = (dateFrom || dateTo || search) ? 'No competitor posts match that filter.' : 'No competitor data scraped yet — visit the Competitor Dashboard.';
   } else {
     items = (DIRECTORY_A_MANIFEST || []).filter(f => f.hasThumbnail)
-      .filter(f => !search || `${f.name||''} ${f.path||''}`.toLowerCase().includes(search))
-      .slice(0, 40).map(f => ({
-        refKey: 'internal:' + f.id, name: f.name, kind: 'internal', url: withBase('/media/directory-a/' + currentOrgSlug + '/' + f.id + '.jpg')
+      .filter(f => {
+        const d = (f.modifiedTime || '').slice(0, 10);
+        if(dateFrom && d < dateFrom) return false;
+        if(dateTo && d > dateTo) return false;
+        if(search && !`${f.name||''} ${f.path||''}`.toLowerCase().includes(search)) return false;
+        return true;
+      })
+      .map(f => ({
+        refKey: 'internal:' + f.id, name: f.name, kind: 'internal', url: withBase('/media/directory-a/' + currentOrgSlug + '/' + f.id + '.jpg'),
+        date: (f.modifiedTime || '').slice(0, 10), sortName: f.name || '', likes: 0
       }));
-    $('brief-vizref-empty-text').textContent = search ? 'No internal files match that search.' : 'No internal archive synced yet — link a Google Drive folder in Directory A.';
+    $('brief-vizref-empty-text').textContent = (search || dateFrom || dateTo) ? 'No internal files match that filter.' : 'No internal archive synced yet — link a Google Drive folder in Directory A.';
   }
-  if(!items.length){
+
+  // Sort field/direction applies before the 40-item display cap so "oldest first" etc. actually
+  // surfaces the right items instead of just re-ordering whatever the cap happened to keep.
+  items.sort((a, b) => {
+    const cmp = sortField === 'name' ? (a.sortName || '').localeCompare(b.sortName || '')
+      : sortField === 'likes' ? (a.likes || 0) - (b.likes || 0)
+      : (a.date || '').localeCompare(b.date || '');
+    return cmp * sortDir;
+  });
+  const totalItems = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / BRIEF_VIZREF_PAGE_SIZE));
+  if(briefVizrefPage >= totalPages) briefVizrefPage = totalPages - 1;
+  if(briefVizrefPage < 0) briefVizrefPage = 0;
+  const pageItems = items.slice(briefVizrefPage * BRIEF_VIZREF_PAGE_SIZE, (briefVizrefPage + 1) * BRIEF_VIZREF_PAGE_SIZE);
+
+  if(!totalItems){
     grid.innerHTML = '';
+    $('brief-vizref-pagination').style.display = 'none';
     if(empty) empty.style.display = 'block';
     return;
   }
   if(empty) empty.style.display = 'none';
-  grid.innerHTML = items.map(item => `
+  grid.innerHTML = pageItems.map(item => `
     <div class="vizref-card ${briefRefImages.some(i => i.refKey === item.refKey) ? 'selected' : ''}" data-vizref-key="${esc(item.refKey)}">
       <img src="${esc(item.url)}" alt="${esc(item.name)}" loading="lazy" onload="this.closest('.vizref-card').classList.toggle('is-portrait', this.naturalHeight > this.naturalWidth)">
       <div class="vizref-label">${esc(item.name)}</div>
@@ -996,8 +1034,18 @@ function renderBriefVizrefGrid(){
     </div>
   `).join('');
   grid.querySelectorAll('[data-vizref-key]').forEach((card, i) => {
-    card.addEventListener('click', () => toggleBriefVizref(items[i]));
+    card.addEventListener('click', () => toggleBriefVizref(pageItems[i]));
   });
+
+  const pageNum = briefVizrefPage + 1;
+  const pag = $('brief-vizref-pagination');
+  pag.style.display = 'flex';
+  pag.innerHTML = `
+    <button class="btn btn-outline btn-sm" id="brief-vizref-pg-prev" ${pageNum <= 1 ? 'disabled' : ''}>← Prev</button>
+    <span class="page-info">Page ${pageNum} of ${totalPages} — ${totalItems} result${totalItems === 1 ? '' : 's'}</span>
+    <button class="btn btn-outline btn-sm" id="brief-vizref-pg-next" ${pageNum >= totalPages ? 'disabled' : ''}>Next →</button>`;
+  $('brief-vizref-pg-prev').addEventListener('click', () => { briefVizrefPage--; renderBriefVizrefGrid(); });
+  $('brief-vizref-pg-next').addEventListener('click', () => { briefVizrefPage++; renderBriefVizrefGrid(); });
 }
 
 function collectBriefFields(){
