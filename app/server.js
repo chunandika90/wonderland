@@ -2781,6 +2781,9 @@ function serveShell(file) {
     catch (e) { return res.status(404).end(); }
     const inject = `<base href="${BASE_PATH_SLASH}">\n<script>window.APP_BASE=${JSON.stringify(BASE_PATH_SLASH)};</script>`;
     html = html.replace('</head>', inject + '\n</head>');
+    // This document is rewritten per-request (base path injected above) — never let the browser
+    // cache it, or a user who loaded it before a deploy can be stuck on a stale shell indefinitely.
+    res.set('Cache-Control', 'no-cache');
     res.type('html').send(html);
   };
 }
