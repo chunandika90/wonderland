@@ -1257,6 +1257,7 @@ function renderBoardBriefRecap(brief){
   const row = (lab, val) => val ? `<div class="board-brief-row"><div class="board-brief-label">${esc(lab)}</div><div class="board-brief-val">${esc(val)}</div></div>` : '';
   const vc = brief.visualCopywriting;
   $('board-brief-recap').innerHTML = `
+    <div class="board-card-title">User Input</div>
     <div class="board-brief-row"><div class="board-brief-label">Campaign</div><div class="board-brief-val" style="font-weight:700; font-size:15px;">${esc(brief.title || 'Untitled')}</div></div>
     ${row('Background', brief.background)}
     ${row('Audience', brief.audience)}
@@ -1337,10 +1338,14 @@ function renderBoardRefColumn(cat, refs, decision){
 
 function renderBoardJudgeOutput(version){
   const pb = version.polishedBrief || {};
-  const vc = currentBoardBrief && currentBoardBrief.visualCopywriting;
+  // Post copy comes from THIS version, not the frozen brief.visualCopywriting — that's what
+  // makes "ganti headline" feedback actually take effect round over round instead of always
+  // showing whatever was generated on the very first pass.
+  const vc = version.postCopy || (currentBoardBrief && currentBoardBrief.visualCopywriting);
   const row = (lab, val) => `<div class="detail-row"><div class="detail-lab">${esc(lab)}</div><div class="detail-val">${esc(val || '—')}</div></div>`;
   $('board-judge-output').innerHTML = `
-    <div class="card" style="margin-top:0;">
+    <div class="card board-card-ai" style="margin-top:0;">
+      <div class="board-card-title">AI Recommendation</div>
       <div class="board-brief-label" style="margin-bottom:10px;">Polished brief — AI-tightened wording, same facts</div>
       ${row('Background', pb.background)}
       ${row('Audience', pb.audience)}
@@ -1383,7 +1388,7 @@ function renderBoardLog(versions){
           ${!approved ? `<button class="btn btn-accent btn-sm" data-board-approve="${idx}">Approve this version</button>` : ''}
         </div>
         <div class="board-version-body" style="display:${isLatest ? 'block' : 'none'};">
-          <div class="caption-box">${esc((v.polishedBrief && v.polishedBrief.objective || '').slice(0, 160))}</div>
+          <div class="caption-box">${esc((v.postCopy && v.postCopy.headline) || (v.polishedBrief && v.polishedBrief.objective) || '')}</div>
         </div>
       </div>
     </div>`;

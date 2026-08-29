@@ -451,6 +451,11 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .board-split{display:grid; grid-template-columns:320px 1fr; gap:24px; align-items:start;}
 @media (max-width:1000px){ .board-split{grid-template-columns:1fr;} }
 .board-split-left{position:sticky; top:16px;}
+.board-card-title{font-family:'Fraunces', serif; font-size:15px; font-weight:600; color:var(--fg); margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border);}
+/* User Input stays neutral (plain card); AI Recommendation gets an accent tint + left stripe so
+   it visually reads as "this is the one AI made," not just more text in an identical box. */
+.board-card-ai{background:var(--accent-50); border-color:var(--accent-border); border-left:3px solid var(--accent); box-shadow:var(--shadow-pop);}
+.board-card-ai .board-card-title{color:var(--accent-dark); border-bottom-color:var(--accent-border);}
 .board-brief-row{margin-bottom:14px;}
 .board-brief-row:last-child{margin-bottom:0;}
 .board-brief-label{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--fg-soft); margin-bottom:3px;}

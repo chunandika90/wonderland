@@ -2562,6 +2562,8 @@ For each category that has candidates, silently pick your single best pick — j
 
 Your other job: many briefs are typed quickly and casually by whoever's filling the form, not written carefully. Rewrite each brief field into polished, professional marketing language an expert strategist would write — same facts, same intent, same core meaning, just properly worded. Never invent new claims, numbers, or details that weren't in the original. If a field was already well-written, keep it close to as-is rather than padding it.
 
+You also own the actual Instagram post copy (headline/sub-headline/caption) — you'll be shown the current copy (either a first draft or what you wrote last round). On a fresh round with no feedback yet, keep it as-is unless it's clearly weak. On a refinement round, this is the MAIN thing user feedback usually targets ("ganti headline", "kurang menarik", etc.) — if feedback says anything about the headline/caption/wording, actually change it accordingly; don't just leave it identical to last round while only touching the brief fields above.
+
 Respond with ONLY a raw JSON object matching exactly:
 {
   "decision": {
@@ -2570,7 +2572,8 @@ Respond with ONLY a raw JSON object matching exactly:
     "marketBenchmark": {"refKey": "...", "category": "B"} | null,
     "personal": {"refKey": "...", "category": "D"} | null
   },
-  "polishedBrief": {"background": "...", "audience": "...", "objective": "...", "channels": "...", "terms": "..."}
+  "polishedBrief": {"background": "...", "audience": "...", "objective": "...", "channels": "...", "terms": "..."},
+  "postCopy": {"headline": "...", "sub": "...", "caption": "..."}
 }
 Never invent a refKey that wasn't shown to you. Leave a polishedBrief field "" if the original brief field was empty — don't fabricate content for it.`;
 
@@ -2662,10 +2665,15 @@ Objective: ${brief.objective || ''}
 Channels: ${brief.channels || ''}
 Terms/constraints: ${brief.terms || ''}`;
 
+  // The post copy carries forward from round to round (prior version's postCopy once one
+  // exists, else the brief's original draft/generated copy) so feedback like "ganti headline"
+  // has something concrete to actually change instead of the Judge inventing from nothing.
+  const currentCopy = (priorVersion && priorVersion.postCopy) || brief.visualCopywriting || {};
   const priorText = priorVersion ? `\n\nPREVIOUS DECISION:\n${JSON.stringify(priorVersion.decision)}\n${JSON.stringify(priorVersion.polishedBrief)}` : '';
+  const copyText = `\n\nCURRENT POST COPY (headline/sub/caption — refine this, don't ignore it):\n${JSON.stringify(currentCopy)}`;
   const feedbackText = feedback ? `\n\nUSER FEEDBACK ON THE PREVIOUS DECISION (treat as explicit constraint): ${feedback}` : '';
 
-  const textPart = { text: `${briefText}${priorText}${feedbackText}\n\nCANDIDATE IMAGES SHOWN BELOW, IN ORDER:\n${labelLines.join('\n') || '(no candidates available)'}` };
+  const textPart = { text: `${briefText}${priorText}${copyText}${feedbackText}\n\nCANDIDATE IMAGES SHOWN BELOW, IN ORDER:\n${labelLines.join('\n') || '(no candidates available)'}` };
   const contents = [{ role: 'user', parts: [textPart, ...parts] }];
 
   const { parsed, tokenUsage, model } = await callGeminiJSON(apiKey, CAMPAIGN_BOARD_JUDGE_PROMPT, contents);
@@ -2681,6 +2689,7 @@ Terms/constraints: ${brief.terms || ''}`;
     },
     decision: parsed.decision,
     polishedBrief: parsed.polishedBrief,
+    postCopy: parsed.postCopy || currentCopy,
     tokenUsage, model
   };
   return { versionPayload };
