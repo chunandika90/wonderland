@@ -113,6 +113,13 @@ async function init(){
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
   });
+  $('brief-vizref-date-from').addEventListener('change', renderBriefVizrefGrid);
+  $('brief-vizref-date-to').addEventListener('change', renderBriefVizrefGrid);
+  $('btn-brief-vizref-date-clear').addEventListener('click', () => {
+    $('brief-vizref-date-from').value = '';
+    $('brief-vizref-date-to').value = '';
+    renderBriefVizrefGrid();
+  });
 
   $('btn-board-ext-search').addEventListener('click', searchBoardExternal);
   $('btn-board-send').addEventListener('click', sendBoardMessage);
@@ -930,6 +937,8 @@ let briefVizrefSource = 'competitor';
 function setBriefVizrefSource(src){
   briefVizrefSource = src;
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.src === src));
+  // Directory A files don't carry a post date, so the range filter only makes sense for competitor.
+  $('brief-vizref-date-filter').style.display = src === 'competitor' ? 'flex' : 'none';
   renderBriefVizrefGrid();
 }
 
@@ -947,13 +956,21 @@ function renderBriefVizrefGrid(){
   const empty = $('brief-vizref-empty');
   let items = [];
   if(briefVizrefSource === 'competitor'){
+    const dateFrom = $('brief-vizref-date-from').value;
+    const dateTo = $('brief-vizref-date-to').value;
     items = COMPETITOR_POSTS.filter(p => p.display_url)
+      .filter(p => {
+        const d = p.date || (p.timestamp || '').slice(0, 10);
+        if(dateFrom && d < dateFrom) return false;
+        if(dateTo && d > dateTo) return false;
+        return true;
+      })
       .slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''))
       .slice(0, 40).map(p => ({
         refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url),
         date: p.date || (p.timestamp || '').slice(0, 10)
       }));
-    $('brief-vizref-empty-text').textContent = 'No competitor data scraped yet — visit the Competitor Dashboard.';
+    $('brief-vizref-empty-text').textContent = (dateFrom || dateTo) ? 'No competitor posts in that date range.' : 'No competitor data scraped yet — visit the Competitor Dashboard.';
   } else {
     items = (DIRECTORY_A_MANIFEST || []).filter(f => f.hasThumbnail).slice(0, 40).map(f => ({
       refKey: 'internal:' + f.id, name: f.name, kind: 'internal', url: withBase('/media/directory-a/' + currentOrgSlug + '/' + f.id + '.jpg')
