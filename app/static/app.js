@@ -108,6 +108,7 @@ async function init(){
 
   $('btn-brief-attach-image').addEventListener('click', () => $('brief-image-input').click());
   $('brief-image-input').addEventListener('change', addBriefRefImages);
+  $('btn-brief-draft-generate').addEventListener('click', generateBriefDraft);
   $('btn-brief-generate').addEventListener('click', generateBriefCopy);
   $('btn-brief-save').addEventListener('click', saveBrief);
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => {
@@ -1069,6 +1070,40 @@ function collectBriefFields(){
     draftSub: $('brief-draft-sub').value.trim(),
     draftCaption: $('brief-draft-caption').value.trim()
   };
+}
+
+// Writes a first-draft headline/sub/caption from scratch, using the brief fields + whichever
+// reference images are picked (uploads AND database picks alike — the server resolves database
+// picks' actual bytes itself, unlike the rephrase-only endpoint below which only sees uploads).
+// Fills the draft boxes so the existing "Rephrase wording" flow still works on top if wanted.
+async function generateBriefDraft(){
+  const btn = $('btn-brief-draft-generate');
+  const status = $('brief-draft-generate-status');
+  const fields = collectBriefFields();
+  if(!fields.background && !fields.audience && !fields.objective){
+    alert('Fill in at least the background, audience, or objective first — generation needs something to work from.');
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = 'Gemini is drafting…';
+
+  const body = Object.assign({}, fields, { referenceImages: briefRefImages });
+
+  try {
+    const res = await api('/api/generate-brief-draft', { method:'POST', body: JSON.stringify(body) });
+    if(res && res.ok){
+      $('brief-draft-headline').value = res.headline;
+      $('brief-draft-sub').value = res.sub;
+      $('brief-draft-caption').value = res.caption;
+      status.textContent = `${res.strategySummary || 'Draft generated'} — ${res.tokenUsage.total.toLocaleString()} tokens · ${res.model}`;
+    } else {
+      status.textContent = (res && res.error) || 'Could not generate a draft.';
+    }
+  } catch(e){
+    status.textContent = 'Request failed — try again.';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function generateBriefCopy(){

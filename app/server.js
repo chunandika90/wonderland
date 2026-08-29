@@ -1770,6 +1770,77 @@ Respond with ONLY a raw JSON object matching exactly:
   }
 });
 
+// A briefRefImages entry is either an upload (already has base64 mimeType/data from the client)
+// or a database pick (competitor/internal — only a refKey + display url, no bytes). This resolves
+// either kind to real inlineData bytes so BOTH count as visual context for generation, not just
+// uploads — reuses the exact same local-file resolution Campaign Board's Judge already does.
+function resolveBriefRefImageInline(org, ref) {
+  if (ref.kind === 'upload' && ref.mimeType && ref.data) return { inlineData: { mimeType: ref.mimeType, data: ref.data } };
+  if (ref.kind === 'internal') {
+    const fileId = (ref.refKey || '').replace(/^internal:/, '');
+    return readLocalImageAsInlineData(path.join(orgDirectoryAThumbsDir(org.slug), fileId + '.jpg'));
+  }
+  if (ref.kind === 'competitor') {
+    const postUrl = (ref.refKey || '').replace(/^competitor:/, '');
+    const snapshot = loadLatestAnalyticsSnapshot(org.slug);
+    const post = ((snapshot && snapshot.data && snapshot.data.posts) || []).find(p => p.url === postUrl);
+    if (!post || !post.display_url || !post.display_url.startsWith('/media/analytics/')) return null;
+    return readLocalImageAsInlineData(path.join(orgImagesDir(org.slug), path.basename(post.display_url)));
+  }
+  return null;
+}
+
+const CAMPAIGN_BRIEF_DRAFT_PROMPT = `You are a senior copywriter drafting the FIRST version of an Instagram headline, sub-headline, and caption for a campaign brief — not rephrasing anything, writing it from scratch. Base it on the brief fields given (background, audience, objective, channels, terms) and, if shown, the attached reference images — look at what's actually in them (subject, mood, setting) and let that inform the angle, don't just treat them as generic mood board filler.
+
+Write in the same language the brief itself is written in. Keep it grounded in what the brief actually says — don't invent offers, prices, dates, or products it didn't mention.
+
+Respond with ONLY a raw JSON object matching exactly:
+{"headline": "...", "sub": "...", "caption": "...", "strategySummary": "1-2 sentences on the angle you took and why, in the user's language"}`;
+
+app.post('/api/generate-brief-draft', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!org) return res.status(404).json({ ok: false, error: 'Organization not found' });
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-model-key.js, then try again.' });
+
+  const body = req.body || {};
+  const title = (body.title || '').trim();
+  const background = (body.background || '').trim();
+  const audience = (body.audience || '').trim();
+  const objective = (body.objective || '').trim();
+  const channels = (body.channels || '').trim();
+  const terms = (body.terms || '').trim();
+  const referenceImages = Array.isArray(body.referenceImages) ? body.referenceImages : [];
+
+  if (!background && !audience && !objective) {
+    return res.status(400).json({ ok: false, error: 'Fill in at least the background, audience, or objective first — generation needs something to work from.' });
+  }
+
+  const briefText = `Campaign name: ${title || '(untitled)'}
+Campaign Background: ${background || '(not given)'}
+Target Audience: ${audience || '(not given)'}
+Campaign Objective: ${objective || '(not given)'}
+Media Channels: ${channels || '(not given)'}
+Terms and Condition Campaign: ${terms || '(not given)'}`;
+
+  const imageParts = referenceImages.slice(0, 10).map(r => resolveBriefRefImageInline(org, r)).filter(Boolean);
+  const contents = [{ role: 'user', parts: [{ text: briefText }, ...imageParts] }];
+
+  try {
+    const result = await callGeminiJSON(apiKey, CAMPAIGN_BRIEF_DRAFT_PROMPT, contents);
+    logGeneration(org.slug, {
+      timestamp: new Date().toISOString(), agent: 'gemini', model: result.model,
+      requestText: `Campaign brief draft: ${title || '(untitled)'}`, postCount: 0, tokenUsage: result.tokenUsage
+    });
+    res.json({
+      ok: true, headline: result.parsed.headline || '', sub: result.parsed.sub || '', caption: result.parsed.caption || '',
+      strategySummary: result.parsed.strategySummary || '', tokenUsage: result.tokenUsage, model: result.model
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
 // --- Guardrails: a small per-org config (max posts per proposal + freeform rule lines) that
 // Creative Chat enforces both in its prompt and as a hard server-side cap on every proposal.
 const CHAT_HISTORY_LIMIT = 40; // turns kept per conversation before older ones are dropped from the prompt window
