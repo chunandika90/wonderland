@@ -2503,21 +2503,55 @@ Respond with ONLY a raw JSON object matching exactly:
 }
 Leave a category's reasoning as an empty string if it had no candidates at all. Never invent a refKey that wasn't shown to you.`;
 
+// Ranks candidates by how many brief keywords show up in whatever text is actually available for
+// them (Directory A only has filenames/folder paths; competitor posts have real captions) — used
+// to pick relevant material for the Judge to look at instead of an arbitrary "first N" slice.
+function briefKeywordsFor(brief) {
+  const raw = [brief.title, brief.background, brief.audience, brief.objective, brief.terms].filter(Boolean).join(' ').toLowerCase();
+  const stop = new Set(['this', 'that', 'with', 'from', 'have', 'will', 'your', 'their', 'about', 'which', 'into', 'more', 'than', 'then', 'were', 'been', 'they', 'them']);
+  return [...new Set(raw.split(/[^a-z0-9]+/).filter(w => w.length > 3 && !stop.has(w)))];
+}
+function textRelevanceScore(text, keywords) {
+  const lower = (text || '').toLowerCase();
+  return keywords.reduce((score, kw) => score + (lower.includes(kw) ? 1 : 0), 0);
+}
+
 async function runCampaignBoardJudge(org, brief, priorVersion, feedback, externalRefs) {
   const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  const briefKeywords = briefKeywordsFor(brief);
 
   const manifest = loadDirectoryAManifest(org.slug);
-  const candA = ((manifest && manifest.files) || []).filter(f => f.hasThumbnail).slice(0, 6).map(f => ({
-    refKey: 'internal:' + f.id, name: f.name, localPath: path.join(orgDirectoryAThumbsDir(org.slug), f.id + '.jpg')
-  }));
+  const candA = ((manifest && manifest.files) || [])
+    .filter(f => f.hasThumbnail)
+    .map(f => ({
+      refKey: 'internal:' + f.id, name: f.name, localPath: path.join(orgDirectoryAThumbsDir(org.slug), f.id + '.jpg'),
+      score: textRelevanceScore(f.name + ' ' + (f.path || ''), briefKeywords)
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
 
   const snapshot = loadLatestAnalyticsSnapshot(org.slug);
-  const candB = (((snapshot && snapshot.data && snapshot.data.posts) || []))
-    .filter(p => p.display_url && p.display_url.startsWith('/media/analytics/'))
-    .slice(0, 6).map(p => ({
+  const candB = (() => {
+    const allB = ((snapshot && snapshot.data && snapshot.data.posts) || [])
+      .filter(p => p.display_url && p.display_url.startsWith('/media/analytics/'));
+    const byAccount = {};
+    allB.forEach(p => { (byAccount[p.account || p.brand_name || 'unknown'] = byAccount[p.account || p.brand_name || 'unknown'] || []).push(p); });
+    Object.values(byAccount).forEach(list => {
+      list.sort((a, b) => textRelevanceScore(`${b.caption || ''} ${b.category || ''}`, briefKeywords) - textRelevanceScore(`${a.caption || ''} ${a.category || ''}`, briefKeywords));
+    });
+    // Round-robin across every tracked competitor account (ranked by brief relevance within
+    // each account first) so all of them get a chance to be seen by the Judge — a plain top-N
+    // slice on the raw post list let whichever account scraped first silently crowd out others.
+    const accountKeys = Object.keys(byAccount);
+    const picked = [];
+    for (let round = 0; picked.length < 6 && accountKeys.some(k => byAccount[k][round]); round++) {
+      accountKeys.forEach(k => { if (picked.length < 6 && byAccount[k][round]) picked.push(byAccount[k][round]); });
+    }
+    return picked.map(p => ({
       refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`,
       localPath: path.join(orgImagesDir(org.slug), path.basename(p.display_url))
     }));
+  })();
 
   const candC = (externalRefs || []).slice(0, 12).map(r => ({
     refKey: r.refKey, name: r.name, localPath: path.join(orgCampaignBoardMediaDir(org.slug), r.localFile)
