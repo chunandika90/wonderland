@@ -2479,7 +2479,7 @@ app.post('/api/campaign-board/search-external', async (req, res) => {
   }
 });
 
-const CAMPAIGN_BOARD_JUDGE_PROMPT = `You are the AI Judge for a Campaign Board — a workspace that helps an agency decide creative direction before production, by comparing four categories of visual reference:
+const CAMPAIGN_BOARD_JUDGE_PROMPT = `You are the AI Judge for a Campaign Board — a workspace that helps an agency pick reference visuals before production, by comparing four categories:
 A — Historical/Internal: the brand's own past visual archive. Role: brand guardrail. Question: what have we done before?
 B — Competitor: scraped competitor posts. Role: market benchmark. Question: what is the market doing?
 C — External (Pinterest/Behance): outside creative inspiration the user searched for. Role: primary creative inspiration. Question: what else is creatively possible?
@@ -2487,7 +2487,9 @@ D — Personal: reference images the user uploaded themselves. Role: user intent
 
 You will be shown labeled candidate images from some or all of these categories, plus the campaign brief, and — if this is a refinement round — the previous decision and the user's new feedback (treat that feedback as an explicit constraint, not a suggestion).
 
-For each category that has candidates, pick your single best pick and explain the reasoning (or explain why none of that category's candidates fit, if that's the honest answer). Do not treat "most technically polished" as automatically "best" — judge for relevance to the brief.
+For each category that has candidates, silently pick your single best pick — judge for relevance to the brief, not technical polish. Do not explain the pick; the field for that is gone from the output on purpose.
+
+Your other job: many briefs are typed quickly and casually by whoever's filling the form, not written carefully. Rewrite each brief field into polished, professional marketing language an expert strategist would write — same facts, same intent, same core meaning, just properly worded. Never invent new claims, numbers, or details that weren't in the original. If a field was already well-written, keep it close to as-is rather than padding it.
 
 Respond with ONLY a raw JSON object matching exactly:
 {
@@ -2495,13 +2497,11 @@ Respond with ONLY a raw JSON object matching exactly:
     "primary": {"refKey": "...", "category": "A|B|C|D"} | null,
     "supporting": {"refKey": "...", "category": "A|B|C|D"} | null,
     "marketBenchmark": {"refKey": "...", "category": "B"} | null,
-    "personal": {"refKey": "...", "category": "D"} | null,
-    "reasoning": {"A": "...", "B": "...", "C": "...", "D": "..."}
+    "personal": {"refKey": "...", "category": "D"} | null
   },
-  "creativeDirection": {"style": "...", "composition": "...", "lighting": "...", "color": "...", "mood": "...", "subject": "...", "framing": "...", "avoid": "..."},
-  "productionInstruction": {"designer": "...", "imageGenerator": "...", "copywriter": "..."}
+  "polishedBrief": {"background": "...", "audience": "...", "objective": "...", "channels": "...", "terms": "..."}
 }
-Leave a category's reasoning as an empty string if it had no candidates at all. Never invent a refKey that wasn't shown to you.`;
+Never invent a refKey that wasn't shown to you. Leave a polishedBrief field "" if the original brief field was empty — don't fabricate content for it.`;
 
 // Ranks candidates by how many brief keywords show up in whatever text is actually available for
 // them (Directory A only has filenames/folder paths; competitor posts have real captions) — used
@@ -2591,7 +2591,7 @@ Objective: ${brief.objective || ''}
 Channels: ${brief.channels || ''}
 Terms/constraints: ${brief.terms || ''}`;
 
-  const priorText = priorVersion ? `\n\nPREVIOUS DECISION:\n${JSON.stringify(priorVersion.decision)}\n${JSON.stringify(priorVersion.creativeDirection)}` : '';
+  const priorText = priorVersion ? `\n\nPREVIOUS DECISION:\n${JSON.stringify(priorVersion.decision)}\n${JSON.stringify(priorVersion.polishedBrief)}` : '';
   const feedbackText = feedback ? `\n\nUSER FEEDBACK ON THE PREVIOUS DECISION (treat as explicit constraint): ${feedback}` : '';
 
   const textPart = { text: `${briefText}${priorText}${feedbackText}\n\nCANDIDATE IMAGES SHOWN BELOW, IN ORDER:\n${labelLines.join('\n') || '(no candidates available)'}` };
@@ -2609,8 +2609,7 @@ Terms/constraints: ${brief.terms || ''}`;
       D: candD.map(c => ({ refKey: c.refKey, name: c.name, url: `data:${c.inline.inlineData.mimeType};base64,${c.inline.inlineData.data}` }))
     },
     decision: parsed.decision,
-    creativeDirection: parsed.creativeDirection,
-    productionInstruction: parsed.productionInstruction,
+    polishedBrief: parsed.polishedBrief,
     tokenUsage, model
   };
   return { versionPayload };

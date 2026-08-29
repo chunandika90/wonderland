@@ -947,9 +947,11 @@ function renderBriefVizrefGrid(){
   const empty = $('brief-vizref-empty');
   let items = [];
   if(briefVizrefSource === 'competitor'){
-    items = COMPETITOR_POSTS.filter(p => p.display_url).slice(0, 40).map(p => ({
-      refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url)
-    }));
+    items = COMPETITOR_POSTS.filter(p => p.display_url)
+      .slice().sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''))
+      .slice(0, 40).map(p => ({
+        refKey: 'competitor:' + p.url, name: `${p.brand_name || ''} — ${p.category || ''}`, kind: 'competitor', url: mediaUrl(p.display_url)
+      }));
     $('brief-vizref-empty-text').textContent = 'No competitor data scraped yet — visit the Competitor Dashboard.';
   } else {
     items = (DIRECTORY_A_MANIFEST || []).filter(f => f.hasThumbnail).slice(0, 40).map(f => ({
@@ -1263,25 +1265,16 @@ function renderBoardRefColumn(cat, refs, decision){
 }
 
 function renderBoardJudgeOutput(version){
-  const d = version.decision || {}, reasoning = d.reasoning || {}, cd = version.creativeDirection || {}, pi = version.productionInstruction || {};
+  const pb = version.polishedBrief || {};
   const row = (lab, val) => `<div class="detail-row"><div class="detail-lab">${esc(lab)}</div><div class="detail-val">${esc(val || '—')}</div></div>`;
   $('board-judge-output').innerHTML = `
-    <div class="detail-spec" style="margin-top:22px;">
-      ${row('Reasoning — A (Historical)', reasoning.A)}
-      ${row('Reasoning — B (Competitor)', reasoning.B)}
-      ${row('Reasoning — C (External)', reasoning.C)}
-      ${row('Reasoning — D (Personal)', reasoning.D)}
-      ${row('Style', cd.style)}
-      ${row('Composition', cd.composition)}
-      ${row('Lighting', cd.lighting)}
-      ${row('Color', cd.color)}
-      ${row('Mood', cd.mood)}
-      ${row('Subject', cd.subject)}
-      ${row('Framing', cd.framing)}
-      ${row('Avoid', cd.avoid)}
-      ${row('Production — For Designer', pi.designer)}
-      ${row('Production — For Image Generator', pi.imageGenerator)}
-      ${row('Production — For Copywriter', pi.copywriter)}
+    <div class="card" style="margin-top:0;">
+      <div class="board-brief-label" style="margin-bottom:10px;">Polished brief — AI-tightened wording, same facts</div>
+      ${row('Background', pb.background)}
+      ${row('Audience', pb.audience)}
+      ${row('Objective', pb.objective)}
+      ${row('Channels', pb.channels)}
+      ${row('Terms / constraints', pb.terms)}
     </div>`;
 }
 
@@ -1311,7 +1304,7 @@ function renderBoardLog(versions){
           ${!approved ? `<button class="btn btn-accent btn-sm" data-board-approve="${idx}">Approve this version</button>` : ''}
         </div>
         <div class="board-version-body" style="display:${isLatest ? 'block' : 'none'};">
-          <div class="caption-box">${esc(v.creativeDirection && v.creativeDirection.style || '')} — ${esc(v.creativeDirection && v.creativeDirection.mood || '')}</div>
+          <div class="caption-box">${esc((v.polishedBrief && v.polishedBrief.objective || '').slice(0, 160))}</div>
         </div>
       </div>
     </div>`;
