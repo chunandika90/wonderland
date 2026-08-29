@@ -679,40 +679,24 @@
           </div>
 
           <div class="field">
-            <label class="f-label">Draft headline (to rephrase)</label>
+            <label class="f-label">Draft headline (optional — leave blank to let AI write it)</label>
             <input type="text" id="brief-draft-headline" placeholder="Your rough headline">
           </div>
           <div class="field">
-            <label class="f-label">Draft sub-headline (to rephrase)</label>
+            <label class="f-label">Draft sub-headline (optional)</label>
             <input type="text" id="brief-draft-sub" placeholder="Your rough sub-headline">
           </div>
           <div class="field">
-            <label class="f-label">Draft caption (to rephrase)</label>
+            <label class="f-label">Draft caption (optional)</label>
             <textarea id="brief-draft-caption" placeholder="Your rough caption" style="min-height:60px;"></textarea>
           </div>
 
           <div style="display:flex; gap:10px; margin-top:6px;">
-            <button class="btn btn-outline" id="btn-brief-draft-generate" style="flex:1; padding:11px;">
-              <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Generate draft from brief + references
+            <button class="btn btn-accent" id="btn-brief-save" style="flex:1; padding:11px;">
+              <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Generate &amp; save — open Campaign Board
             </button>
-          </div>
-          <span id="brief-draft-generate-status" class="rescrape-status"></span>
-
-          <div style="display:flex; gap:10px; margin-top:14px;">
-            <button class="btn btn-accent" id="btn-brief-generate" style="flex:1; padding:11px;">
-              <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Rephrase wording
-            </button>
-            <button class="btn btn-outline" id="btn-brief-save" style="padding:11px 18px;">Save brief</button>
           </div>
           <span id="brief-generate-status" class="rescrape-status"></span>
-        </div>
-
-        <div id="brief-recs-wrap" style="display:none; margin-top:20px;">
-          <div class="section-head">
-            <h2 style="font-size:14.5px;">Rephrased options</h2>
-            <p class="sub">Same message as your draft, reworded 3 ways — pick one to save into the brief.</p>
-          </div>
-          <div id="brief-recs-list"></div>
         </div>
 
         <div class="section-head" style="margin-top:26px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">

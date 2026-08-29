@@ -108,9 +108,7 @@ async function init(){
 
   $('btn-brief-attach-image').addEventListener('click', () => $('brief-image-input').click());
   $('brief-image-input').addEventListener('change', addBriefRefImages);
-  $('btn-brief-draft-generate').addEventListener('click', generateBriefDraft);
-  $('btn-brief-generate').addEventListener('click', generateBriefCopy);
-  $('btn-brief-save').addEventListener('click', saveBrief);
+  $('btn-brief-save').addEventListener('click', generateAndSaveBrief);
   document.querySelectorAll('#brief-vizref-toggle .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => setBriefVizrefSource(btn.dataset.src));
   });
@@ -890,9 +888,6 @@ function discardAiRecommendations(){
 /* ---------- campaign brief (form -> generated visual copywriting -> save -> export) ---------- */
 let savedBriefs = [];
 let briefRefImages = []; // [{name, mimeType, data}] — data is base64, no data: prefix
-let briefRecOptions = [];
-let briefStrategySummary = '';
-let briefSelectedRec = null;
 
 async function addBriefRefImages(){
   const input = $('brief-image-input');
@@ -1072,113 +1067,64 @@ function collectBriefFields(){
   };
 }
 
-// Writes a first-draft headline/sub/caption from scratch, using the brief fields + whichever
-// reference images are picked (uploads AND database picks alike — the server resolves database
-// picks' actual bytes itself, unlike the rephrase-only endpoint below which only sees uploads).
-// Fills the draft boxes so the existing "Rephrase wording" flow still works on top if wanted.
-async function generateBriefDraft(){
-  const btn = $('btn-brief-draft-generate');
-  const status = $('brief-draft-generate-status');
-  const fields = collectBriefFields();
-  if(!fields.background && !fields.audience && !fields.objective){
-    alert('Fill in at least the background, audience, or objective first — generation needs something to work from.');
-    return;
-  }
-  btn.disabled = true;
-  status.textContent = 'Gemini is drafting…';
-
-  const body = Object.assign({}, fields, { referenceImages: briefRefImages });
-
-  try {
-    const res = await api('/api/generate-brief-draft', { method:'POST', body: JSON.stringify(body) });
-    if(res && res.ok){
-      $('brief-draft-headline').value = res.headline;
-      $('brief-draft-sub').value = res.sub;
-      $('brief-draft-caption').value = res.caption;
-      status.textContent = `${res.strategySummary || 'Draft generated'} — ${res.tokenUsage.total.toLocaleString()} tokens · ${res.model}`;
-    } else {
-      status.textContent = (res && res.error) || 'Could not generate a draft.';
-    }
-  } catch(e){
-    status.textContent = 'Request failed — try again.';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-async function generateBriefCopy(){
-  const btn = $('btn-brief-generate');
+// One button instead of three separate steps that always ran in the same order anyway: write
+// (or rephrase) the headline/sub/caption, save the brief, then land on Campaign Board where the
+// real before/after comparison lives. If the draft fields are empty, generate from scratch using
+// the brief + picked references; if the user already typed something, rephrase that instead
+// (auto-picking the first option — no separate pick-one step, same reasoning as merging the
+// buttons in the first place).
+async function generateAndSaveBrief(){
+  const btn = $('btn-brief-save');
   const status = $('brief-generate-status');
-  const body = collectBriefFields();
-  if(!body.draftHeadline && !body.draftSub && !body.draftCaption){
-    alert('Write a draft headline, sub-headline, or caption first — rephrasing needs something to work from.');
-    return;
-  }
-  btn.disabled = true;
-  status.textContent = 'Gemini is thinking…';
-
-  body.referenceImages = briefRefImages.filter(i => i.kind === 'upload').map(i => ({ mimeType: i.mimeType, data: i.data }));
-
-  try {
-    const res = await api('/api/generate-brief', { method:'POST', body: JSON.stringify(body) });
-    if(res && res.ok){
-      briefRecOptions = res.options;
-      briefStrategySummary = res.strategySummary;
-      briefSelectedRec = null;
-      renderBriefRecs();
-      status.textContent = `${res.options.length} option${res.options.length===1?'':'s'} — ${res.tokenUsage.total.toLocaleString()} tokens · ${res.model}`;
-    } else {
-      status.textContent = (res && res.error) || 'Could not rephrase.';
-    }
-  } catch(e){
-    status.textContent = 'Request failed — try again.';
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function renderBriefRecs(){
-  const wrap = $('brief-recs-wrap');
-  if(!briefRecOptions.length){
-    wrap.style.display = 'none';
-    return;
-  }
-  wrap.style.display = 'block';
-  $('brief-recs-list').innerHTML = (briefStrategySummary ? `<p class="sub" style="margin:0 0 12px;">${esc(briefStrategySummary)}</p>` : '') +
-    briefRecOptions.map((o, idx) => `
-      <div class="ai-rec-card selectable ${briefSelectedRec === idx ? 'selected' : ''}" data-brief-select-rec="${idx}">
-        <div class="ai-rec-headline">${esc(o.headline||'(untitled)')}</div>
-        ${o.sub ? `<div class="ai-rec-sub">${esc(o.sub)}</div>` : ''}
-        <p class="ai-rec-caption">${esc(o.caption||'')}</p>
-      </div>
-    `).join('');
-  $('brief-recs-list').querySelectorAll('[data-brief-select-rec]').forEach(card => {
-    card.addEventListener('click', () => {
-      briefSelectedRec = parseInt(card.dataset.briefSelectRec, 10);
-      renderBriefRecs();
-    });
-  });
-}
-
-async function saveBrief(){
   const fields = collectBriefFields();
   if(!fields.title){ alert('Give this campaign a name first.'); return; }
-  const status = $('brief-generate-status');
-  const brief = Object.assign({}, fields, {
-    referenceImages: briefRefImages,
-    visualCopywriting: briefSelectedRec !== null ? briefRecOptions[briefSelectedRec] : null,
-    strategySummary: briefSelectedRec !== null ? briefStrategySummary : null
-  });
+
+  btn.disabled = true;
+  let visualCopywriting = null, strategySummary = null;
+
+  try {
+    if(!fields.draftHeadline && !fields.draftSub && !fields.draftCaption){
+      status.textContent = 'Gemini is drafting…';
+      const res = await api('/api/generate-brief-draft', { method:'POST', body: JSON.stringify(Object.assign({}, fields, { referenceImages: briefRefImages })) });
+      if(res && res.ok){
+        $('brief-draft-headline').value = res.headline;
+        $('brief-draft-sub').value = res.sub;
+        $('brief-draft-caption').value = res.caption;
+        visualCopywriting = { headline: res.headline, sub: res.sub, caption: res.caption };
+        strategySummary = res.strategySummary;
+      } else {
+        status.textContent = (res && res.error) || 'Could not generate a draft — saving as-is.';
+      }
+    } else {
+      status.textContent = 'Gemini is rephrasing…';
+      const rephraseBody = Object.assign({}, fields, { referenceImages: briefRefImages.filter(i => i.kind === 'upload').map(i => ({ mimeType: i.mimeType, data: i.data })) });
+      const res = await api('/api/generate-brief', { method:'POST', body: JSON.stringify(rephraseBody) });
+      if(res && res.ok && res.options && res.options[0]){
+        const opt = res.options[0];
+        $('brief-draft-headline').value = opt.headline || '';
+        $('brief-draft-sub').value = opt.sub || '';
+        $('brief-draft-caption').value = opt.caption || '';
+        visualCopywriting = opt;
+        strategySummary = res.strategySummary;
+      } else {
+        status.textContent = (res && res.error) || 'Could not rephrase — saving as-is.';
+      }
+    }
+  } catch(e){
+    status.textContent = 'AI step failed — saving as-is.';
+  }
+
+  status.textContent = 'Saving…';
+  const finalFields = collectBriefFields(); // re-collect: the AI step above may have just filled the draft boxes
+  const brief = Object.assign({}, finalFields, { referenceImages: briefRefImages, visualCopywriting, strategySummary });
   const saved = await api('/api/campaign-briefs', { method:'POST', body: JSON.stringify(brief) });
+  btn.disabled = false;
   if(saved && saved.id){
     savedBriefs.push(saved);
     renderSavedBriefs();
     ['brief-title','brief-background','brief-audience','brief-objective','brief-timeline','brief-channels','brief-terms','brief-ref-links','brief-draft-headline','brief-draft-sub','brief-draft-caption'].forEach(id => $(id).value = '');
     briefRefImages = []; renderBriefRefImages(); renderBriefVizrefGrid();
-    briefRecOptions = []; briefSelectedRec = null; renderBriefRecs();
     status.textContent = 'Saved ✓';
-    // Straight into the Campaign Board for this brief — that's where the left(original input)/
-    // right(AI-polished) comparison actually lives, not here on the plain form.
     openCampaignBoardPage(saved.id);
   } else {
     status.textContent = (saved && saved.error) || 'Could not save.';
