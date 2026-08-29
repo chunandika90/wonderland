@@ -474,7 +474,7 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .board-version-card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; flex:1;}
 .board-version-card.board-version-active{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
 .board-version-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
-.board-version-diff{width:100%; min-height:70px; margin-top:6px; font-family:'SFMono-Regular',Consolas,monospace; font-size:11.5px; line-height:1.5; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--canvas); color:var(--fg-muted); resize:vertical;}
+.board-version-diff{width:100%; margin-top:6px; font-family:'SFMono-Regular',Consolas,monospace; font-size:11.5px; line-height:1.5; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--canvas); color:var(--fg-muted); white-space:pre-wrap; word-break:break-word;}
 
 /* ---------- icon button ---------- */
 .icon-btn{

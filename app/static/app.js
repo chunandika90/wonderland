@@ -1446,7 +1446,7 @@ function renderBoardLog(versions, activeIdx){
           ${!approved ? `<button class="btn btn-accent btn-sm" data-board-approve="${idx}">Approve this version</button>` : ''}
         </div>
         <div class="board-brief-label" style="margin-top:10px;">What changed in this version</div>
-        <textarea class="board-version-diff" readonly>${esc(diffText)}</textarea>
+        <div class="board-version-diff">${esc(diffText)}</div>
       </div>
     </div>`;
   }).join('');
