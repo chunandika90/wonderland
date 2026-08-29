@@ -678,41 +678,48 @@
             <textarea id="brief-ref-links" placeholder="Reference post links, one per line" style="min-height:60px;"></textarea>
           </div>
 
-          <div class="field">
-            <label class="f-label">Draft headline (to rephrase)</label>
-            <input type="text" id="brief-draft-headline" placeholder="Your rough headline">
-          </div>
-          <div class="field">
-            <label class="f-label">Draft sub-headline (to rephrase)</label>
-            <input type="text" id="brief-draft-sub" placeholder="Your rough sub-headline">
-          </div>
-          <div class="field">
-            <label class="f-label">Draft caption (to rephrase)</label>
-            <textarea id="brief-draft-caption" placeholder="Your rough caption" style="min-height:60px;"></textarea>
+          <div class="board-split" style="margin-top:14px;">
+            <div class="board-split-left">
+              <div class="card">
+                <div class="board-brief-label" style="margin-bottom:10px;">User Brief</div>
+                <div class="field">
+                  <label class="f-label">Headline</label>
+                  <input type="text" id="brief-draft-headline" placeholder="Your rough headline">
+                </div>
+                <div class="field">
+                  <label class="f-label">Sub-headline</label>
+                  <input type="text" id="brief-draft-sub" placeholder="Your rough sub-headline">
+                </div>
+                <div class="field" style="margin-bottom:0;">
+                  <label class="f-label">Caption</label>
+                  <textarea id="brief-draft-caption" placeholder="Your rough caption" style="min-height:80px;"></textarea>
+                </div>
+              </div>
+            </div>
+            <div class="board-split-right">
+              <div class="card">
+                <div class="board-brief-label" style="margin-bottom:10px;">AI Brief</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button class="btn btn-outline btn-sm" id="btn-brief-draft-generate">
+                    <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Generate from brief + references
+                  </button>
+                  <button class="btn btn-outline btn-sm" id="btn-brief-generate">
+                    <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Rephrase my draft
+                  </button>
+                </div>
+                <span id="brief-draft-generate-status" class="rescrape-status" style="display:block; margin-top:8px;"></span>
+                <span id="brief-generate-status" class="rescrape-status" style="display:block;"></span>
+                <div id="brief-recs-wrap" style="display:none; margin-top:14px;">
+                  <p class="sub" style="margin:0 0 8px;">Reworded 3 ways — pick one to save into the brief.</p>
+                  <div id="brief-recs-list"></div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div style="display:flex; gap:10px; margin-top:6px;">
-            <button class="btn btn-outline" id="btn-brief-draft-generate" style="flex:1; padding:11px;">
-              <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Generate draft from brief + references
-            </button>
+          <div style="margin-top:14px;">
+            <button class="btn btn-accent" id="btn-brief-save" style="padding:11px 18px;">Save brief</button>
           </div>
-          <span id="brief-draft-generate-status" class="rescrape-status"></span>
-
-          <div style="display:flex; gap:10px; margin-top:14px;">
-            <button class="btn btn-accent" id="btn-brief-generate" style="flex:1; padding:11px;">
-              <span class="agent-badge agent-gemini" style="margin-right:6px;">GEMINI</span>Rephrase wording
-            </button>
-            <button class="btn btn-outline" id="btn-brief-save" style="padding:11px 18px;">Save brief</button>
-          </div>
-          <span id="brief-generate-status" class="rescrape-status"></span>
-        </div>
-
-        <div id="brief-recs-wrap" style="display:none; margin-top:20px;">
-          <div class="section-head">
-            <h2 style="font-size:14.5px;">Rephrased options</h2>
-            <p class="sub">Same message as your draft, reworded 3 ways — pick one to save into the brief.</p>
-          </div>
-          <div id="brief-recs-list"></div>
         </div>
 
         <div class="section-head" style="margin-top:26px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
