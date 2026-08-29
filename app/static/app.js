@@ -1177,6 +1177,9 @@ async function saveBrief(){
     briefRefImages = []; renderBriefRefImages(); renderBriefVizrefGrid();
     briefRecOptions = []; briefSelectedRec = null; renderBriefRecs();
     status.textContent = 'Saved ✓';
+    // Straight into the Campaign Board for this brief — that's where the left(original input)/
+    // right(AI-polished) comparison actually lives, not here on the plain form.
+    openCampaignBoardPage(saved.id);
   } else {
     status.textContent = (saved && saved.error) || 'Could not save.';
   }
