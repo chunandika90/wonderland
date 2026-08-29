@@ -2516,13 +2516,24 @@ function textRelevanceScore(text, keywords) {
   return keywords.reduce((score, kw) => score + (lower.includes(kw) ? 1 : 0), 0);
 }
 
+// Directory A mirrors a client's whole Drive, which usually holds more than finished visual
+// work — planning-tool screenshots, spreadsheets, brand-mark exports. Those keep matching a
+// brief's own vocabulary suspiciously well (a "Screenshot Planner" folder full of files
+// literally named "Feeds"/"Stories" kept winning against real photography) without being
+// usable creative reference, so they're excluded before scoring even starts rather than left
+// for the relevance score to (incorrectly) rank highly.
+const DIRECTORY_A_NON_REFERENCE_PATTERN = /screenshot|planner|\blogo\b/i;
+function isLikelyVisualReference(file) {
+  return !DIRECTORY_A_NON_REFERENCE_PATTERN.test(`${file.path || ''} ${file.name || ''}`);
+}
+
 async function runCampaignBoardJudge(org, brief, priorVersion, feedback, externalRefs) {
   const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
   const briefKeywords = briefKeywordsFor(brief);
 
   const manifest = loadDirectoryAManifest(org.slug);
   const candA = ((manifest && manifest.files) || [])
-    .filter(f => f.hasThumbnail)
+    .filter(f => f.hasThumbnail && isLikelyVisualReference(f))
     .map(f => ({
       refKey: 'internal:' + f.id, name: f.name, localPath: path.join(orgDirectoryAThumbsDir(org.slug), f.id + '.jpg'),
       score: textRelevanceScore(f.name + ' ' + (f.path || ''), briefKeywords)

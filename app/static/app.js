@@ -1184,6 +1184,22 @@ let currentBoard = null;
 // and get sent along with the next feedback message so the Judge can still reason about them.
 let boardExternalResults = [];
 
+let currentBoardBrief = null;
+
+function renderBoardBriefRecap(brief){
+  $('board-title').textContent = 'Campaign Board — ' + (brief.title || 'Untitled');
+  $('board-subtitle').textContent = 'Every reference and decision below is scoped to this brief — refine it in plain language at the bottom.';
+  const row = (lab, val) => val ? `<div class="board-brief-row"><div class="board-brief-label">${esc(lab)}</div><div class="board-brief-val">${esc(val)}</div></div>` : '';
+  $('board-brief-recap').innerHTML = `
+    <div class="board-brief-row"><div class="board-brief-label">Campaign</div><div class="board-brief-val" style="font-weight:700; font-size:15px;">${esc(brief.title || 'Untitled')}</div></div>
+    ${row('Background', brief.background)}
+    ${row('Audience', brief.audience)}
+    ${row('Objective', brief.objective)}
+    ${row('Channels', brief.channels)}
+    ${row('Terms / constraints', brief.terms)}
+  `;
+}
+
 async function openCampaignBoardPage(briefId){
   showPage('campaignboard');
   document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.toggle('active', a.dataset.page === 'campaignboard'));
@@ -1192,6 +1208,10 @@ async function openCampaignBoardPage(briefId){
   $('board-empty').style.display = 'block';
   $('board-empty').querySelector('.big').textContent = 'Loading…';
   $('board-empty').querySelector('div:last-child').textContent = '';
+
+  const brief = savedBriefs.find(b => b.id === briefId);
+  currentBoardBrief = brief || null;
+  if(brief) renderBoardBriefRecap(brief);
 
   const existing = await api('/api/campaign-boards?briefId=' + encodeURIComponent(briefId)) || [];
   let board;

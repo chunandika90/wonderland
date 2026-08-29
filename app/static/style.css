@@ -417,7 +417,15 @@ table.plan-table tr:hover td{background:var(--canvas);}
 .vizref-card.selected::after{content:"✓"; position:absolute; top:6px; right:6px; width:20px; height:20px; border-radius:999px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font-size:11px; font-weight:700;}
 
 /* ---------- campaign board ---------- */
+.board-split{display:grid; grid-template-columns:320px 1fr; gap:24px; align-items:start;}
+@media (max-width:1000px){ .board-split{grid-template-columns:1fr;} }
+.board-split-left{position:sticky; top:16px;}
+.board-brief-row{margin-bottom:14px;}
+.board-brief-row:last-child{margin-bottom:0;}
+.board-brief-label{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--fg-soft); margin-bottom:3px;}
+.board-brief-val{font-size:13px; color:var(--fg); line-height:1.5; white-space:pre-wrap;}
 .board-ref-grid{display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; align-items:start;}
+@media (max-width:900px){ .board-ref-grid{grid-template-columns:repeat(2, 1fr);} }
 @media (max-width:1100px){ .board-ref-grid{grid-template-columns:repeat(2, 1fr);} }
 .board-ref-col{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px;}
 .board-ref-col-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--fg-soft); margin-bottom:10px;}

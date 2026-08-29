@@ -688,8 +688,8 @@
 
       <section class="section page-view" id="campaignboard" data-page="campaignboard">
         <div class="section-head">
-          <h2>Campaign Board</h2>
-          <p class="sub">Compare reference from 4 sources, let the AI Judge reason about the pick, then refine in plain language.</p>
+          <h2 id="board-title">Campaign Board</h2>
+          <p class="sub" id="board-subtitle">Compare reference from 4 sources, let the AI Judge reason about the pick, then refine in plain language.</p>
         </div>
 
         <div id="board-empty" class="empty">
@@ -698,46 +698,53 @@
         </div>
 
         <div id="board-content" style="display:none;">
-          <div class="board-ref-grid">
-            <div class="board-ref-col" data-board-col="A">
-              <div class="board-ref-col-label">A — Historical / Internal</div>
-              <div class="board-ref-cards" id="board-ref-A"></div>
+          <div class="board-split">
+            <div class="board-split-left">
+              <div class="card" id="board-brief-recap"></div>
             </div>
-            <div class="board-ref-col" data-board-col="B">
-              <div class="board-ref-col-label">B — Competitor</div>
-              <div class="board-ref-cards" id="board-ref-B"></div>
-            </div>
-            <div class="board-ref-col" data-board-col="C">
-              <div class="board-ref-col-label">C — External (Pinterest / Behance)</div>
-              <div class="board-ext-search">
-                <select id="board-ext-source">
-                  <option value="pinterest">Pinterest</option>
-                  <option value="behance">Behance</option>
-                </select>
-                <input type="text" id="board-ext-query" placeholder="e.g. minimalist cafe interior">
-                <button class="btn btn-outline btn-sm" id="btn-board-ext-search">Search</button>
+            <div class="board-split-right">
+              <div class="board-ref-grid">
+                <div class="board-ref-col" data-board-col="A">
+                  <div class="board-ref-col-label">A — Historical / Internal</div>
+                  <div class="board-ref-cards" id="board-ref-A"></div>
+                </div>
+                <div class="board-ref-col" data-board-col="B">
+                  <div class="board-ref-col-label">B — Competitor</div>
+                  <div class="board-ref-cards" id="board-ref-B"></div>
+                </div>
+                <div class="board-ref-col" data-board-col="C">
+                  <div class="board-ref-col-label">C — External (Pinterest / Behance)</div>
+                  <div class="board-ext-search">
+                    <select id="board-ext-source">
+                      <option value="pinterest">Pinterest</option>
+                      <option value="behance">Behance</option>
+                    </select>
+                    <input type="text" id="board-ext-query" placeholder="e.g. minimalist cafe interior">
+                    <button class="btn btn-outline btn-sm" id="btn-board-ext-search">Search</button>
+                  </div>
+                  <span id="board-ext-status" class="rescrape-status"></span>
+                  <div class="board-ref-cards" id="board-ref-C"></div>
+                </div>
+                <div class="board-ref-col" data-board-col="D">
+                  <div class="board-ref-col-label">D — Personal (uploads)</div>
+                  <div class="board-ref-cards" id="board-ref-D"></div>
+                </div>
               </div>
-              <span id="board-ext-status" class="rescrape-status"></span>
-              <div class="board-ref-cards" id="board-ref-C"></div>
-            </div>
-            <div class="board-ref-col" data-board-col="D">
-              <div class="board-ref-col-label">D — Personal (uploads)</div>
-              <div class="board-ref-cards" id="board-ref-D"></div>
-            </div>
-          </div>
 
-          <div id="board-judge-output"></div>
+              <div id="board-judge-output"></div>
 
-          <div class="section-head" style="margin-top:26px;">
-            <h2 style="font-size:14.5px;">Conversation &amp; version history</h2>
-            <p class="sub">Every round is kept — nothing gets overwritten.</p>
+              <div class="section-head" style="margin-top:26px;">
+                <h2 style="font-size:14.5px;">Conversation &amp; version history</h2>
+                <p class="sub">Every round is kept — nothing gets overwritten.</p>
+              </div>
+              <div class="chat-log" id="board-log" style="max-height:none;"></div>
+              <div class="chat-input-row">
+                <textarea id="board-input" placeholder="e.g. kurang premium, kurangi model manusia…" rows="2"></textarea>
+                <button class="btn btn-accent" id="btn-board-send">Send</button>
+              </div>
+              <span id="board-send-status" class="rescrape-status"></span>
+            </div>
           </div>
-          <div class="chat-log" id="board-log" style="max-height:none;"></div>
-          <div class="chat-input-row">
-            <textarea id="board-input" placeholder="e.g. kurang premium, kurangi model manusia…" rows="2"></textarea>
-            <button class="btn btn-accent" id="btn-board-send">Send</button>
-          </div>
-          <span id="board-send-status" class="rescrape-status"></span>
         </div>
       </section>
 
