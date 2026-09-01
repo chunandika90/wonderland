@@ -1,0 +1,36 @@
+# Session Recap — Wonderland (2026-08-31 → 2026-09-01)
+
+## Masalah awal
+`wccn.co.id/wonderland` cuma nampilin raw directory listing — app-nya belum pernah didaftarin sebagai Node.js App di cPanel sama sekali.
+
+## Yang diperbaiki
+
+### 1. Node.js App belum terdaftar
+User daftarin lewat cPanel → Setup Node.js App → Create Application (root `public_html/wonderland`, startup file `server.js`). Setelah ini domain berubah dari directory listing jadi 404 — progress, tapi belum jalan sepenuhnya.
+
+### 2. `.htaccess` konflik dua app dalam satu file
+`public_html/wonderland/.htaccess` ternyata masih nyimpen blok Passenger config lama punya `compass` (karena kode wonderland ini asalnya dari codebase compass — lihat `package.json` name: `buranchi-compass`), ketimpa/ketambahan blok baru punya `wonderland`. Dua `PassengerAppRoot`/`PassengerBaseURI` beda app dalam satu `.htaccess` bikin LiteSpeed Passenger bingung routing-nya → 404.
+
+**Fix:** hapus blok `compass` yang nyasar, sisain cuma blok `wonderland`.
+
+### 3. `BASE_PATH` env var belum di-set
+App-nya sendiri sebenernya udah support base path (`BASE_PATH` env var, dipakai buat redirect & asset path pas di-mount di subfolder kayak `/wonderland`), tapi env var-nya belum pernah diisi di cPanel Node App config → default ke `/`, jadinya semua redirect (`res.redirect(BASE_PATH_SLASH + 'login.html')`) ngarah ke `/login.html` (404) bukan `/wonderland/login.html`.
+
+**Fix:** tambahin env var `BASE_PATH=/wonderland` di cPanel → Setup Node.js App → Environment Variables, lalu restart.
+
+Setelah tiga fix ini, `wccn.co.id/wonderland` jalan normal dan redirect ke halaman login dengan benar.
+
+## Bridge ke Sakara Ops
+Wonderland dan Sakara Ops jalan di satu cPanel account yang sama tapi app terpisah. Sakara Ops sync data client-nya ke sini lewat `/api/bridge/orgs/*` (lihat `SAKARA_BRIDGE_SECRET` di `server.js`), supaya tiap client Sakara otomatis punya org/workspace di sini buat data kompetitor.
+
+**Ditemukan bug besar di sisi Sakara:** default URL bridge-nya nunjuk ke `https://wccn.co.id/compass` (app lama yang mau dihapus), bukan ke `/wonderland` — jadi selama ini sync-nya selalu gagal diam-diam. Sudah diperbaiki di sisi Sakara (lihat repo `sakara`, `SESSION_NOTES.md` di situ) dan di-backfill manual lewat bridge API untuk 8 client asli:
+`sakara-blueprints-bites-brew`, `sakara-buranchi`, `sakara-iga-tech-lifestyle`, `sakara-owiu-goods`, `sakara-by-bitte`, `sakara-sama-sama-prime`, `sakara-aquasonic`, `sakara-brown-butter`.
+
+## Cleanup workspace list
+Beberapa org di `data/orgs.json` ternyata data tes lama yang nggak match client Sakara mana pun — dinonaktifkan (`active: false`, bukan dihapus permanen, biar aman) via bridge PATCH:
+`sakara` (Sakara Collectives), `bbb`, `sakara-unique-new-test-client`, `sakara-isolation-test-a`, `sakara-isolation-test-b`, `sakara-test-auto-login-client`.
+
+`sakara-buranchi` **sengaja dibiarkan aktif** meski keliatan mirip "duplikat" dari `buranchi` — itu bukan sampah, itu slug yang dipakai bridge kompetitor Sakara Ops buat client Buranchi, beda dari workspace `buranchi` yang isinya konten planning asli (punya `apifyToken`, `geminiApiKey`, competitor list sendiri).
+
+## File sensitif — TIDAK di-commit ke repo ini
+`.env`, `.env.cpanel` (kredensial FTP/cPanel), `data/` (berisi `internal-users.json` — password plaintext staff — dan `orgs.json` — API key Apify & Gemini), `service-accounts/wonderland-drive-reader.json` (kredensial Google service account). Semua sudah di-`.gitignore`.
