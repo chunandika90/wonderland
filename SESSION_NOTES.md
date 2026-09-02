@@ -61,3 +61,11 @@ Pembagiannya:
 - **Gambar** → tetap entry `type:'file'` (base64) untuk preview dan dikirim sebagai `inlineData` waktu generate summary.
 
 Di list kiri: 📝 = diketik manual, 📄 = hasil upload dokumen, thumbnail = gambar. Judul kosong otomatis pakai nama file.
+
+## `.htaccess`: copy lokal disamakan dengan live + di-gitignore (2026-09-02)
+
+Copy `.htaccess` di `D:\Juan\wonderland` ternyata masih versi lama yang isinya blok Passenger `compass` (`PassengerAppRoot ".../compass"`, `PassengerBaseURI "/compass"`) — persis blok yang bikin 404 di bagian **2** di atas dan sudah dibetulin di server live 2026-09-01. Kalau file lokal ini sampai kedorong ke server lewat Fileman API, routing `/wonderland` rusak lagi.
+
+**Fix:** versi live ditarik turun (`GET /execute/Fileman/get_file_content?dir=public_html/wonderland&file=.htaccess`) lalu dipakai nimpa file lokal — sekarang lokal byte-identical sama live. Isi live cuma blok `wonderland` + `SetEnv BASE_PATH /wonderland`; `COMPASS_SECRET` dan `APIFY_API_TOKEN` yang nangkring di file lokal lama memang sudah tidak ada di live.
+
+**Sekalian di-gitignore.** `.htaccess` itu tempat `SetEnv` nyimpen nilai rahasia plaintext dan isinya beda per environment, jadi sekarang di-ignore di dua tempat: `D:\Juan\wonderland\.gitignore` (`.htaccess`) dan repo ini (`app/.htaccess`). File ini belum pernah ke-commit (`git log --all -- '*.htaccess'` kosong, dan di file yang ke-track cuma *nama* variabelnya yang muncul), jadi tidak ada kredensial yang perlu di-rotate — ignore-nya murni pencegahan.

@@ -11,6 +11,8 @@ app/data/internal-users.json
 *.key
 .env
 .env.*
+# Live Passenger/env config - holds plaintext SetEnv secrets, differs per environment
+app/.htaccess
 
 # Runtime / generated data — diverges between local and live, not source code
 app/data/orgs/
