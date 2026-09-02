@@ -43,3 +43,12 @@ Sebelumnya tiap kategori (Brand Context, Brand Voice, Brand Visual Identity, Ide
 - **Kasus khusus Buranchi**: 4 dari 5 kategori Buranchi (semua kecuali Brand Visual Identity) `useSharedConfig: true` — dibaca dari file eksternal di luar folder Wonderland (kemungkinan dikelola manual oleh tim lain). Begitu satu entry ditambah/diedit lewat UI baru untuk salah satu dari 4 itu, kategori itu **"fork"** jadi file lokal Wonderland sendiri (`resolveConfigPath` cek: kalau `<id>.entries.json` sudah ada secara lokal, pakai itu, bukan file eksternal lagi) — file eksternal aslinya tidak pernah ditimpa, tapi juga berhenti nyambung begitu di-fork.
 - **Update History** (halaman baru di sidebar Master Config): log kronologis semua transaksi (tiap `text added/updated/removed` atau `image added/removed`) lintas 5 kategori, dibatasi 30 entry terakhir per client (`data/orgs/<slug>/master-config-history.json`). Klik satu entry di list kiri nampilin isi lengkapnya di kanan (isi teks versi itu, atau preview gambarnya).
 - **Brand Summary** (kartu AI di Dashboard, dibuat lebih awal sesi ini): sekarang narik gambar attachment dari kelima kategori itu juga (bukan cuma dari bucket generik `brand-assets.json` yang sempat dibuat lalu di-deprecate UI-nya karena kepakai attachment per-kategori).
+
+### Layout final tiap halaman kategori (3 pane)
+Iterasi pertama menaruh semua entry sebagai kartu bertumpuk dengan textarea kecil — tidak kepakai. Layout finalnya:
+
+1. **Kiri** (`.mc-split` kolom 300px) — list entry: judul, waktu, ikon 📝 untuk teks / thumbnail untuk gambar, plus tombol **+ Add**. Item yang dipilih di-highlight.
+2. **Kanan** — isi entry yang dipilih: judul + textarea besar (min-height 400px) dengan tombol Save/Remove, atau preview gambar penuh untuk entry attachment. Klik **+ Add** mengubah pane ini jadi form entry baru (toggle Text / Attach image).
+3. **Bawah, full width** — **AI Summary khusus section itu**: sintesis Gemini atas seluruh entry di list (teks + gambar), output `{overview, keyPoints[], gaps[]}` — `gaps` sengaja diminta supaya kontradiksi antar-entry dan hal penting yang belum ditulis ikut ketahuan. Di-cache per org+kategori di `data/orgs/<slug>/config/<id>.summary.json`, digenerate hanya saat tombol ditekan, dan otomatis ditandai **stale** ("ada isi yang berubah setelah ini") kalau ada entry dengan `createdAt`/`updatedAt` lebih baru dari `generatedAt`.
+
+Endpoint: `GET/POST /api/config/:id/summary[/generate]`. Ini berbeda dan berdiri sendiri dari Brand Summary di Dashboard, yang merangkum kelima kategori sekaligus.

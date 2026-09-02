@@ -994,6 +994,7 @@ app.put('/api/config/:id/entries/:entryId', (req, res) => {
   if (!entry) return res.status(404).json({ error: 'Entry not found (only text entries can be edited — remove and re-add a file entry instead).' });
   if (typeof title === 'string') entry.title = title;
   if (typeof content === 'string') entry.content = content;
+  entry.updatedAt = new Date().toISOString();
   writeJson(configEntriesFile(org.slug, id), entries);
   regenerateConfigFile(org, id, entries);
   appendConfigHistory(org.slug, { type: 'text', configId: id, label: `${meta.label}: "${entry.title}" updated`, content: entry.content });
@@ -1012,6 +1013,56 @@ app.delete('/api/config/:id/entries/:entryId', (req, res) => {
   regenerateConfigFile(org, id, next);
   if (entry) appendConfigHistory(org.slug, { type: entry.type === 'file' ? 'image' : 'text', label: `${meta.label}: "${entry.title}" removed`, content: '(removed)' });
   res.json({ ok: true });
+});
+
+// Per-category AI summary — one section's whole entry list (text notes + attached images)
+// synthesized into a single coherent picture, so nobody has to read every entry that piled up
+// over time. Cached per org+category; regenerated only when someone asks, and the UI flags it
+// as stale when an entry changed after the last generation.
+function configSummaryFile(slug, id) { return path.join(orgConfigDir(slug), `${id}.summary.json`); }
+
+const CONFIG_SECTION_SUMMARY_PROMPT = `You are summarizing ONE section of a brand's Master Config. That section is built from separate entries added over time — short text notes, and/or attached reference images.
+
+Return strict JSON with this shape, nothing else:
+{
+  "overview": "3-5 sentences synthesizing every entry into one coherent picture of this section",
+  "keyPoints": ["5-8 short bullets — the concrete, actionable specifics someone writing content must know"],
+  "gaps": ["0-4 short notes on contradictions between entries, or important things clearly missing"]
+}
+
+Work only from what the entries actually say — if there is little or no real material, say so plainly in "overview" and leave the arrays short, rather than inventing specifics.`;
+
+app.get('/api/config/:id/summary', (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!CONFIG_LABELS[req.params.id]) return res.status(404).json({ error: 'Unknown config file' });
+  res.json(readJson(configSummaryFile(org.slug, req.params.id), { summary: null, generatedAt: null }));
+});
+
+app.post('/api/config/:id/summary/generate', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const id = req.params.id;
+  const meta = CONFIG_LABELS[id];
+  if (!meta) return res.status(404).json({ error: 'Unknown config file' });
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'No Gemini API key configured for this client.' });
+
+  const entries = loadConfigEntries(org, id);
+  if (!entries.length) return res.status(400).json({ error: 'Belum ada isi untuk dirangkum.' });
+
+  const textBlock = `# Section: ${meta.label}\n\n` + entries.map((e, i) => e.type === 'text'
+    ? `## Entry ${i + 1}: ${e.title || 'Untitled'}\n${e.content || ''}`
+    : `## Entry ${i + 1}: ${e.title || 'Attachment'}\n(An image is attached for this entry — see the images provided.)`
+  ).join('\n\n');
+  const imageParts = entries.filter(e => e.type === 'file').map(e => ({ inlineData: { mimeType: e.mimeType, data: e.data } }));
+
+  try {
+    const { parsed } = await callGeminiJSON(apiKey, CONFIG_SECTION_SUMMARY_PROMPT, [{ role: 'user', parts: [{ text: textBlock }, ...imageParts] }]);
+    const result = { summary: parsed, generatedAt: new Date().toISOString() };
+    writeJson(configSummaryFile(org.slug, id), result);
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // --- Master Config update history — every text save or image upload becomes one entry in a

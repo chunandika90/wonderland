@@ -170,9 +170,12 @@ async function init(){
   });
   $('btn-logout').addEventListener('click', async () => { await api('/api/logout', { method:'POST' }); window.location.href = withBase('/login.html'); });
 
-  $('config-add-mode-text').addEventListener('click', () => setConfigAddMode('text'));
-  $('config-add-mode-file').addEventListener('click', () => setConfigAddMode('file'));
-  $('config-entry-add-btn').addEventListener('click', addConfigEntry);
+  $('config-entry-new').addEventListener('click', () => {
+    activeEntryId = 'new';
+    renderConfigEntries();
+    renderConfigEntryDetail();
+  });
+  $('config-summary-generate').addEventListener('click', generateConfigSummary);
   $('btn-save-guardrails').addEventListener('click', saveGuardrails);
   $('btn-add-rule').addEventListener('click', () => addRuleRow('').querySelector('input').focus());
   $('btn-cc-new').addEventListener('click', newCcConversation);
@@ -313,12 +316,18 @@ function closeMobileSidebar(){
 // attached reference images, addable/editable/removable one at a time — not one big hand-edited
 // document. The underlying .md file Claude/Gemini actually read is auto-regenerated server-side
 // from these entries on every change; this page only ever talks to the entries API.
+// Layout is three panes: the entry list (left), whichever entry is selected (right, where the
+// actual writing happens), and this section's AI summary of the whole list (bottom, full width).
 let activeConfigId = null;
 let configEntriesCache = [];
-let configAddMode = 'text';
+let activeEntryId = null;   // an entry id, 'new', or null (nothing selected)
+let configAddMode = 'text'; // which kind of entry the 'new' form is creating
+let configSummaryCache = null;
 
 async function openConfigFile(id){
   activeConfigId = id;
+  activeEntryId = null;
+  configSummaryCache = null;
   $('config-editor-title').textContent = document.querySelector(`.sidebar nav a[data-config-id="${id}"]`).textContent.trim();
 
   const explainer = CONFIG_EXPLAINERS[id];
@@ -328,67 +337,124 @@ async function openConfigFile(id){
   ` : '';
 
   $('config-entries-list').innerHTML = '<div class="rec-item">Loading…</div>';
-  $('config-entry-add-status').textContent = '';
-  setConfigAddMode('text');
+  $('config-summary-body').innerHTML = '<div class="rec-item">Loading…</div>';
+  $('config-summary-status').textContent = '';
+
   configEntriesCache = await api('/api/config/' + id + '/entries') || [];
   renderConfigEntries();
+  renderConfigEntryDetail();
+  configSummaryCache = await api('/api/config/' + id + '/summary');
+  renderConfigSummary();
 }
 
 function renderConfigEntries(){
-  $('config-entries-list').innerHTML = configEntriesCache.map((e, idx) => e.type === 'file' ? `
-    <div class="card" style="padding:12px; display:flex; gap:12px; align-items:flex-start;">
-      <img src="data:${e.mimeType};base64,${e.data}" style="width:64px; height:64px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--border); flex-shrink:0;">
-      <div style="flex:1;"><b>${esc(e.title)}</b><br><span style="font-size:12px; color:var(--fg-muted);">${fmtDateTime(e.createdAt)}</span></div>
-      <button class="btn btn-outline btn-sm" data-config-entry-remove="${idx}">Remove</button>
-    </div>
-  ` : `
-    <div class="card" style="padding:12px;">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
-        <div style="flex:1;">
-          <input type="text" data-config-entry-title="${idx}" value="${esc(e.title)}" style="font-weight:600; border:none; background:transparent; padding:0; margin-bottom:6px; width:100%;">
-          <textarea data-config-entry-content="${idx}" class="config-textarea" style="min-height:70px;">${esc(e.content)}</textarea>
-          <span style="font-size:12px; color:var(--fg-muted);">${fmtDateTime(e.createdAt)}</span>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:6px;">
-          <button class="btn btn-outline btn-sm" data-config-entry-save="${idx}">Save</button>
-          <button class="btn btn-outline btn-sm" data-config-entry-remove="${idx}">Remove</button>
-        </div>
+  $('config-entries-count').textContent = configEntriesCache.length;
+  $('config-entries-list').innerHTML = configEntriesCache.map(e => `
+    <div class="mc-entry-item ${e.id === activeEntryId ? 'active' : ''}" data-entry-id="${esc(e.id)}">
+      ${e.type === 'file'
+        ? `<img class="mc-entry-thumb" src="data:${e.mimeType};base64,${e.data}" alt="">`
+        : '<div class="mc-entry-icon">📝</div>'}
+      <div style="min-width:0;">
+        <div class="mc-entry-name">${esc(e.title)}</div>
+        <div class="mc-entry-time">${fmtDateTime(e.updatedAt || e.createdAt)}</div>
       </div>
     </div>
-  `).join('') || '<div class="rec-item">Belum ada isi — tambahkan lewat form di bawah.</div>';
+  `).join('') || '<div class="rec-item">Belum ada isi — klik "+ Add".</div>';
 
-  $('config-entries-list').querySelectorAll('[data-config-entry-save]').forEach(btn => {
-    btn.addEventListener('click', () => saveConfigEntry(Number(btn.dataset.configEntrySave)));
-  });
-  $('config-entries-list').querySelectorAll('[data-config-entry-remove]').forEach(btn => {
-    btn.addEventListener('click', () => removeConfigEntry(Number(btn.dataset.configEntryRemove)));
+  $('config-entries-list').querySelectorAll('[data-entry-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      activeEntryId = el.dataset.entryId;
+      renderConfigEntries();
+      renderConfigEntryDetail();
+    });
   });
 }
 
-async function saveConfigEntry(idx){
-  const entry = configEntriesCache[idx];
+function renderConfigEntryDetail(){
+  const box = $('config-entry-detail');
+
+  if(activeEntryId === 'new'){
+    box.innerHTML = `
+      <div class="pill-toggle" style="margin-bottom:14px;">
+        <button type="button" class="tab-btn ${configAddMode === 'text' ? 'active' : ''}" data-add-mode="text">Text</button>
+        <button type="button" class="tab-btn ${configAddMode === 'file' ? 'active' : ''}" data-add-mode="file">Attach image</button>
+      </div>
+      ${configAddMode === 'text' ? `
+        <input type="text" id="config-entry-title" placeholder="Judul (mis. &quot;Aturan promo Agustus&quot;)" style="margin-bottom:10px; width:100%;">
+        <textarea id="config-entry-content" class="config-textarea mc-detail-textarea" placeholder="Tulis isinya di sini..."></textarea>
+      ` : `
+        <input type="text" id="config-entry-file-title" placeholder="Judul (mis. &quot;Logo utama&quot;)" style="margin-bottom:10px; width:100%;">
+        <input type="file" id="config-entry-file-input" accept="image/*">
+      `}
+      <div style="display:flex; align-items:center; gap:12px; margin-top:14px;">
+        <button class="btn btn-accent" id="config-entry-add-btn">Add</button>
+        <button class="btn btn-outline" id="config-entry-cancel">Cancel</button>
+        <span id="config-entry-add-status" style="font-size:12px; color:var(--fg-muted);"></span>
+      </div>`;
+    box.querySelectorAll('[data-add-mode]').forEach(btn => {
+      btn.addEventListener('click', () => { configAddMode = btn.dataset.addMode; renderConfigEntryDetail(); });
+    });
+    $('config-entry-add-btn').addEventListener('click', addConfigEntry);
+    $('config-entry-cancel').addEventListener('click', () => { activeEntryId = null; renderConfigEntries(); renderConfigEntryDetail(); });
+    return;
+  }
+
+  const entry = configEntriesCache.find(e => e.id === activeEntryId);
+  if(!entry){
+    box.innerHTML = '<div class="rec-item">Pilih salah satu isi di kiri, atau klik "+ Add" untuk nambah yang baru.</div>';
+    return;
+  }
+
+  if(entry.type === 'file'){
+    box.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
+        <div><b style="font-size:15px;">${esc(entry.title)}</b><br>
+          <span style="font-size:12px; color:var(--fg-muted);">${fmtDateTime(entry.createdAt)}</span></div>
+        <button class="btn btn-outline btn-sm" id="config-entry-remove">Remove</button>
+      </div>
+      <img src="data:${entry.mimeType};base64,${entry.data}" style="max-width:100%; border-radius:var(--radius-md); border:1px solid var(--border);">`;
+  } else {
+    box.innerHTML = `
+      <input type="text" id="config-entry-edit-title" value="${esc(entry.title)}" style="font-weight:600; font-size:15px; width:100%; margin-bottom:10px;">
+      <textarea id="config-entry-edit-content" class="config-textarea mc-detail-textarea">${esc(entry.content)}</textarea>
+      <div style="display:flex; align-items:center; gap:12px; margin-top:14px;">
+        <button class="btn btn-accent" id="config-entry-save">Save changes</button>
+        <button class="btn btn-outline btn-sm" id="config-entry-remove">Remove</button>
+        <span id="config-entry-save-status" style="font-size:12px; color:var(--fg-muted);">${fmtDateTime(entry.updatedAt || entry.createdAt)}</span>
+      </div>`;
+    $('config-entry-save').addEventListener('click', saveConfigEntry);
+  }
+  $('config-entry-remove').addEventListener('click', removeConfigEntry);
+}
+
+async function saveConfigEntry(){
+  const entry = configEntriesCache.find(e => e.id === activeEntryId);
   if(!entry) return;
-  const title = document.querySelector(`[data-config-entry-title="${idx}"]`).value;
-  const content = document.querySelector(`[data-config-entry-content="${idx}"]`).value;
-  const res = await api(`/api/config/${activeConfigId}/entries/${entry.id}`, { method:'PUT', body: JSON.stringify({ title, content }) });
-  if(res && res.id){ entry.title = res.title; entry.content = res.content; renderConfigEntries(); }
+  $('config-entry-save-status').textContent = 'Saving…';
+  const res = await api(`/api/config/${activeConfigId}/entries/${entry.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ title: $('config-entry-edit-title').value, content: $('config-entry-edit-content').value })
+  });
+  if(res && res.id){
+    Object.assign(entry, res);
+    renderConfigEntries();
+    $('config-entry-save-status').textContent = 'Tersimpan.';
+    renderConfigSummary();
+  } else {
+    $('config-entry-save-status').textContent = (res && res.error) || 'Gagal menyimpan.';
+  }
 }
 
-async function removeConfigEntry(idx){
-  const entry = configEntriesCache[idx];
+async function removeConfigEntry(){
+  const entry = configEntriesCache.find(e => e.id === activeEntryId);
   if(!entry) return;
   if(!confirm(`Hapus "${entry.title}"?`)) return;
-  await api(`/api/config/${activeConfigId}/entries/${entry.id}`, { method:'DELETE' });
-  configEntriesCache.splice(idx, 1);
+  await api(`/api/config/${activeConfigId}/entries/${entry.id}`, { method: 'DELETE' });
+  configEntriesCache = configEntriesCache.filter(e => e.id !== entry.id);
+  activeEntryId = null;
   renderConfigEntries();
-}
-
-function setConfigAddMode(mode){
-  configAddMode = mode;
-  $('config-add-mode-text').classList.toggle('active', mode === 'text');
-  $('config-add-mode-file').classList.toggle('active', mode === 'file');
-  $('config-add-text-fields').style.display = mode === 'text' ? '' : 'none';
-  $('config-add-file-fields').style.display = mode === 'file' ? '' : 'none';
+  renderConfigEntryDetail();
+  renderConfigSummary();
 }
 
 async function addConfigEntry(){
@@ -410,17 +476,63 @@ async function addConfigEntry(){
     if(!content.trim()){ $('config-entry-add-status').textContent = 'Isi teksnya dulu.'; return; }
     body = { type: 'text', title: $('config-entry-title').value || 'Untitled', content };
   }
-  const res = await api(`/api/config/${activeConfigId}/entries`, { method:'POST', body: JSON.stringify(body) });
+  const res = await api(`/api/config/${activeConfigId}/entries`, { method: 'POST', body: JSON.stringify(body) });
   if(res && res.id){
     configEntriesCache.push(res);
+    activeEntryId = res.id;
     renderConfigEntries();
-    $('config-entry-title').value = '';
-    $('config-entry-content').value = '';
-    $('config-entry-file-title').value = '';
-    $('config-entry-file-input').value = '';
-    $('config-entry-add-status').textContent = 'Ditambahkan.';
+    renderConfigEntryDetail();
+    renderConfigSummary();
   } else {
     $('config-entry-add-status').textContent = (res && res.error) || 'Gagal menambahkan.';
+  }
+}
+
+// The summary is a snapshot — flag it as stale the moment any entry is newer than it, so nobody
+// reads an out-of-date synthesis without noticing.
+function configSummaryIsStale(){
+  if(!configSummaryCache || !configSummaryCache.generatedAt) return false;
+  return configEntriesCache.some(e => (e.updatedAt || e.createdAt) > configSummaryCache.generatedAt);
+}
+
+function renderConfigSummary(){
+  const s = configSummaryCache && configSummaryCache.summary;
+  if(!s){
+    $('config-summary-body').innerHTML = '<div class="rec-item">Belum pernah di-generate untuk section ini.</div>';
+    return;
+  }
+  $('config-summary-body').innerHTML = `
+    <p style="font-size:14px; line-height:1.75; margin:0 0 14px;">${esc(s.overview || '')}</p>
+    <div style="display:grid; grid-template-columns:${(s.gaps || []).length ? '1.4fr 1fr' : '1fr'}; gap:20px;">
+      <div>
+        <b style="font-size:12px; color:var(--fg-muted);">Key points</b>
+        <ul class="mc-summary-points">${(s.keyPoints || []).map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+      </div>
+      ${(s.gaps || []).length ? `<div>
+        <b style="font-size:12px; color:var(--fg-muted);">Gaps / kontradiksi</b>
+        <ul class="mc-summary-points">${s.gaps.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+      </div>` : ''}
+    </div>
+    <div style="font-size:11.5px; color:var(--fg-muted); margin-top:14px;">
+      Digenerate ${fmtDateTime(configSummaryCache.generatedAt)}${configSummaryIsStale() ? ' — <b>ada isi yang berubah setelah ini, generate ulang biar akurat.</b>' : ''}
+    </div>`;
+}
+
+async function generateConfigSummary(){
+  if(!activeConfigId) return;
+  const btn = $('config-summary-generate');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  $('config-summary-status').textContent = '';
+  const res = await api(`/api/config/${activeConfigId}/summary/generate`, { method: 'POST' });
+  btn.disabled = false;
+  btn.textContent = originalText;
+  if(res && res.summary){
+    configSummaryCache = res;
+    renderConfigSummary();
+  } else {
+    $('config-summary-status').textContent = (res && res.error) || 'Gagal generate summary.';
   }
 }
 

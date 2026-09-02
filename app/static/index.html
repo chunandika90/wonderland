@@ -950,29 +950,31 @@
           <h2>Master Config</h2>
           <p class="sub">Pick a file on the left. These are the same files Claude reads when it drafts a content plan in chat — edit one here and the next plan Claude generates will follow the update, no separate sync needed.</p>
         </div>
-        <div class="card">
-          <h3 id="config-editor-title" style="margin:0 0 10px; font-size:15px;">Select a file from the sidebar</h3>
-          <div id="config-explainer" class="config-explainer"></div>
+        <h3 id="config-editor-title" style="margin:0 0 10px; font-size:16px;">Select a file from the sidebar</h3>
+        <div id="config-explainer" class="config-explainer" style="margin-bottom:18px;"></div>
 
-          <div id="config-entries-list" style="margin:16px 0; display:flex; flex-direction:column; gap:10px;"></div>
+        <div class="mc-split">
+          <div class="card mc-list-card">
+            <div class="mc-list-head">
+              <b style="font-size:13px;">Isi list (<span id="config-entries-count">0</span>)</b>
+              <button class="btn btn-accent btn-sm" id="config-entry-new">+ Add</button>
+            </div>
+            <div id="config-entries-list"></div>
+          </div>
+          <div class="card mc-detail-card">
+            <div id="config-entry-detail"></div>
+          </div>
+        </div>
 
-          <div class="card" style="background:var(--canvas); margin-top:6px;">
-            <div class="pill-toggle" style="margin-bottom:12px;">
-              <button type="button" class="tab-btn active" id="config-add-mode-text">Text</button>
-              <button type="button" class="tab-btn" id="config-add-mode-file">Attach image</button>
-            </div>
-            <div id="config-add-text-fields">
-              <input type="text" id="config-entry-title" placeholder="Judul (mis. &quot;Aturan promo Agustus&quot;)" style="margin-bottom:8px; width:100%;">
-              <textarea id="config-entry-content" class="config-textarea" style="min-height:110px;" placeholder="Tulis isinya di sini..."></textarea>
-            </div>
-            <div id="config-add-file-fields" style="display:none;">
-              <input type="text" id="config-entry-file-title" placeholder="Judul (mis. &quot;Logo utama&quot;)" style="margin-bottom:8px; width:100%;">
-              <input type="file" id="config-entry-file-input" accept="image/*">
-            </div>
-            <div style="display:flex; align-items:center; gap:12px; margin-top:12px;">
-              <button class="btn btn-accent" id="config-entry-add-btn">Add</button>
-              <span id="config-entry-add-status" style="font-size:12px; color:var(--fg-muted);"></span>
-            </div>
+        <div class="card" id="config-summary-card">
+          <div class="section-head" style="margin-bottom:12px;">
+            <h2 style="font-size:15px;">AI Summary</h2>
+            <p class="sub">Rangkuman AI dari gabungan semua isi di list section ini — teks maupun gambar yang diupload.</p>
+          </div>
+          <div id="config-summary-body"></div>
+          <div style="display:flex; align-items:center; gap:12px; margin-top:16px;">
+            <button class="btn btn-accent" id="config-summary-generate">Generate summary</button>
+            <span id="config-summary-status" style="font-size:12px; color:var(--fg-muted);"></span>
           </div>
         </div>
       </section>
