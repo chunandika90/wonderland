@@ -52,3 +52,12 @@ Iterasi pertama menaruh semua entry sebagai kartu bertumpuk dengan textarea keci
 3. **Bawah, full width** — **AI Summary khusus section itu**: sintesis Gemini atas seluruh entry di list (teks + gambar), output `{overview, keyPoints[], gaps[]}` — `gaps` sengaja diminta supaya kontradiksi antar-entry dan hal penting yang belum ditulis ikut ketahuan. Di-cache per org+kategori di `data/orgs/<slug>/config/<id>.summary.json`, digenerate hanya saat tombol ditekan, dan otomatis ditandai **stale** ("ada isi yang berubah setelah ini") kalau ada entry dengan `createdAt`/`updatedAt` lebih baru dari `generatedAt`.
 
 Endpoint: `GET/POST /api/config/:id/summary[/generate]`. Ini berbeda dan berdiri sendiri dari Brand Summary di Dashboard, yang merangkum kelima kategori sekaligus.
+
+### "Attach context", bukan cuma gambar
+Tombol attach awalnya berlabel "Attach image" dan cuma nerima gambar — padahal yang lebih sering diupload justru file `.md`. Sekarang labelnya **"Attach context"** (pasangannya "Tulis teks") dan nerima `.txt/.md/.markdown/.csv/.json` + gambar, multi-file sekaligus, pakai helper `readAttachmentFiles()` yang memang sudah dipakai Content Plan & Creative Chat.
+
+Pembagiannya:
+- **Dokumen teks** → dibaca isinya di client, disimpan sebagai entry `type:'text'` biasa dengan `source:'upload'` + `fileName`. Jadi isinya tetap bisa diedit di pane kanan, ikut ter-concat ke file `.md` yang dibaca semua AI-generation lain, dan ikut kebaca AI summary sebagai teks beneran — bukan blob buram.
+- **Gambar** → tetap entry `type:'file'` (base64) untuk preview dan dikirim sebagai `inlineData` waktu generate summary.
+
+Di list kiri: 📝 = diketik manual, 📄 = hasil upload dokumen, thumbnail = gambar. Judul kosong otomatis pakai nama file.

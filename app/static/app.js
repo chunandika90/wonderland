@@ -353,7 +353,7 @@ function renderConfigEntries(){
     <div class="mc-entry-item ${e.id === activeEntryId ? 'active' : ''}" data-entry-id="${esc(e.id)}">
       ${e.type === 'file'
         ? `<img class="mc-entry-thumb" src="data:${e.mimeType};base64,${e.data}" alt="">`
-        : '<div class="mc-entry-icon">📝</div>'}
+        : `<div class="mc-entry-icon">${e.source === 'upload' ? '📄' : '📝'}</div>`}
       <div style="min-width:0;">
         <div class="mc-entry-name">${esc(e.title)}</div>
         <div class="mc-entry-time">${fmtDateTime(e.updatedAt || e.createdAt)}</div>
@@ -376,15 +376,16 @@ function renderConfigEntryDetail(){
   if(activeEntryId === 'new'){
     box.innerHTML = `
       <div class="pill-toggle" style="margin-bottom:14px;">
-        <button type="button" class="tab-btn ${configAddMode === 'text' ? 'active' : ''}" data-add-mode="text">Text</button>
-        <button type="button" class="tab-btn ${configAddMode === 'file' ? 'active' : ''}" data-add-mode="file">Attach image</button>
+        <button type="button" class="tab-btn ${configAddMode === 'text' ? 'active' : ''}" data-add-mode="text">Tulis teks</button>
+        <button type="button" class="tab-btn ${configAddMode === 'file' ? 'active' : ''}" data-add-mode="file">Attach context</button>
       </div>
       ${configAddMode === 'text' ? `
         <input type="text" id="config-entry-title" placeholder="Judul (mis. &quot;Aturan promo Agustus&quot;)" style="margin-bottom:10px; width:100%;">
         <textarea id="config-entry-content" class="config-textarea mc-detail-textarea" placeholder="Tulis isinya di sini..."></textarea>
       ` : `
-        <input type="text" id="config-entry-file-title" placeholder="Judul (mis. &quot;Logo utama&quot;)" style="margin-bottom:10px; width:100%;">
-        <input type="file" id="config-entry-file-input" accept="image/*">
+        <p class="sub" style="margin:0 0 10px;">Dokumen teks (.md/.txt/.csv/.json) atau gambar. Dokumen teks masuk sebagai isi yang bisa diedit; gambar disimpan sebagai referensi visual. Bisa pilih lebih dari satu file.</p>
+        <input type="text" id="config-entry-file-title" placeholder="Judul (kosongkan = pakai nama file)" style="margin-bottom:10px; width:100%;">
+        <input type="file" id="config-entry-file-input" multiple accept=".txt,.md,.markdown,.csv,.json,image/png,image/jpeg,image/webp,image/gif">
       `}
       <div style="display:flex; align-items:center; gap:12px; margin-top:14px;">
         <button class="btn btn-accent" id="config-entry-add-btn">Add</button>
@@ -415,7 +416,8 @@ function renderConfigEntryDetail(){
       <img src="data:${entry.mimeType};base64,${entry.data}" style="max-width:100%; border-radius:var(--radius-md); border:1px solid var(--border);">`;
   } else {
     box.innerHTML = `
-      <input type="text" id="config-entry-edit-title" value="${esc(entry.title)}" style="font-weight:600; font-size:15px; width:100%; margin-bottom:10px;">
+      <input type="text" id="config-entry-edit-title" value="${esc(entry.title)}" style="font-weight:600; font-size:15px; width:100%; margin-bottom:${entry.source === 'upload' ? '4' : '10'}px;">
+      ${entry.source === 'upload' ? `<p class="sub" style="margin:0 0 10px;">Diupload dari <b>${esc(entry.fileName || 'file')}</b> — isinya bisa diedit di sini.</p>` : ''}
       <textarea id="config-entry-edit-content" class="config-textarea mc-detail-textarea">${esc(entry.content)}</textarea>
       <div style="display:flex; align-items:center; gap:12px; margin-top:14px;">
         <button class="btn btn-accent" id="config-entry-save">Save changes</button>
@@ -460,31 +462,39 @@ async function removeConfigEntry(){
 async function addConfigEntry(){
   if(!activeConfigId) return;
   $('config-entry-add-status').textContent = 'Adding…';
-  let body;
+
+  // An attached text doc becomes an ordinary editable text entry (its contents inlined); an
+  // attached image becomes a 'file' entry kept as base64 for preview + multimodal summary.
+  const bodies = [];
   if(configAddMode === 'file'){
-    const file = ($('config-entry-file-input').files || [])[0];
-    if(!file){ $('config-entry-add-status').textContent = 'Pilih file gambar dulu.'; return; }
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+    const files = Array.from(($('config-entry-file-input').files || []));
+    if(!files.length){ $('config-entry-add-status').textContent = 'Pilih file dulu.'; return; }
+    const customTitle = $('config-entry-file-title').value.trim();
+    const attachments = await readAttachmentFiles(files);
+    if(!attachments.length){ $('config-entry-add-status').textContent = 'Nggak ada file yang kebaca.'; return; }
+    attachments.forEach((a, i) => {
+      const title = customTitle ? (attachments.length > 1 ? `${customTitle} (${i + 1})` : customTitle) : a.name;
+      bodies.push(a.kind === 'image'
+        ? { type: 'file', title, mimeType: a.mimeType, data: a.content }
+        : { type: 'text', title, content: a.content, source: 'upload', fileName: a.name });
     });
-    body = { type: 'file', title: $('config-entry-file-title').value || file.name, mimeType: file.type, data: dataUrl.split(',')[1] };
   } else {
     const content = $('config-entry-content').value;
     if(!content.trim()){ $('config-entry-add-status').textContent = 'Isi teksnya dulu.'; return; }
-    body = { type: 'text', title: $('config-entry-title').value || 'Untitled', content };
+    bodies.push({ type: 'text', title: $('config-entry-title').value || 'Untitled', content });
   }
-  const res = await api(`/api/config/${activeConfigId}/entries`, { method: 'POST', body: JSON.stringify(body) });
-  if(res && res.id){
-    configEntriesCache.push(res);
-    activeEntryId = res.id;
+
+  let lastAdded = null;
+  for(const body of bodies){
+    const res = await api(`/api/config/${activeConfigId}/entries`, { method: 'POST', body: JSON.stringify(body) });
+    if(res && res.id){ configEntriesCache.push(res); lastAdded = res; }
+    else { $('config-entry-add-status').textContent = (res && res.error) || 'Gagal menambahkan.'; break; }
+  }
+  if(lastAdded){
+    activeEntryId = lastAdded.id;
     renderConfigEntries();
     renderConfigEntryDetail();
     renderConfigSummary();
-  } else {
-    $('config-entry-add-status').textContent = (res && res.error) || 'Gagal menambahkan.';
   }
 }
 

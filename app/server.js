@@ -964,14 +964,18 @@ app.post('/api/config/:id/entries', (req, res) => {
   const id = req.params.id;
   const meta = CONFIG_LABELS[id];
   if (!meta) return res.status(404).json({ error: 'Unknown config file' });
-  const { type, title, content, mimeType, data } = req.body || {};
+  const { type, title, content, mimeType, data, source, fileName } = req.body || {};
   let entry;
   if (type === 'file') {
+    // Only images arrive as 'file' entries — an uploaded text doc (.md/.txt/.csv/.json) is read
+    // client-side and posted as a normal 'text' entry, so it stays editable here and flows into
+    // the regenerated .md and the section summary as real text rather than an opaque blob.
     if (!mimeType || !mimeType.startsWith('image/') || !data) return res.status(400).json({ error: 'A valid image (mimeType + base64 data) is required.' });
     entry = { id: crypto.randomUUID(), type: 'file', title: title || 'Attachment', mimeType, data, createdAt: new Date().toISOString() };
   } else {
     if (!content || !content.trim()) return res.status(400).json({ error: 'Content is required.' });
     entry = { id: crypto.randomUUID(), type: 'text', title: title || 'Untitled', content, createdAt: new Date().toISOString() };
+    if (source === 'upload') { entry.source = 'upload'; entry.fileName = fileName || title || ''; }
   }
   const entries = loadConfigEntries(org, id);
   entries.push(entry);
