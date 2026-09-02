@@ -96,6 +96,7 @@ async function init(){
   $('paste-file').addEventListener('change', loadPastedPlanFile);
   $('btn-clear').addEventListener('click', clearAll);
   $('btn-fill-refs').addEventListener('click', fillMissingReferences);
+  $('btn-brand-summary-generate').addEventListener('click', generateBrandSummary);
   $('btn-export').addEventListener('click', exportPlan);
   $('btn-ai-generate').addEventListener('click', generateAiPlan);
   $('btn-ai-add-all').addEventListener('click', addAiRecommendationsToPlan);
@@ -169,7 +170,9 @@ async function init(){
   });
   $('btn-logout').addEventListener('click', async () => { await api('/api/logout', { method:'POST' }); window.location.href = withBase('/login.html'); });
 
-  $('config-save').addEventListener('click', saveConfig);
+  $('config-add-mode-text').addEventListener('click', () => setConfigAddMode('text'));
+  $('config-add-mode-file').addEventListener('click', () => setConfigAddMode('file'));
+  $('config-entry-add-btn').addEventListener('click', addConfigEntry);
   $('btn-save-guardrails').addEventListener('click', saveGuardrails);
   $('btn-add-rule').addEventListener('click', () => addRuleRow('').querySelector('input').focus());
   $('btn-cc-new').addEventListener('click', newCcConversation);
@@ -223,6 +226,7 @@ async function init(){
       if(a.dataset.page === 'creativechat') initCreativeChatPage();
       if(a.dataset.page === 'dashboard') loadDashboard();
       if(a.dataset.page === 'moodboard') loadMoodboardStudio();
+      if(a.dataset.page === 'confighistory') loadConfigHistory();
     });
   });
 
@@ -274,6 +278,7 @@ const PAGE_SUBTITLES = {
   agentbehavior: 'Guardrails global plus kondisi default per agent, dengan kondisi tambahan yang bisa lo edit sendiri.',
   creativechat: 'Ngobrol atau minta rencana konten — pilih sendiri modelnya, dalam 1 percakapan.',
   masterconfig: 'The brand files Claude and Gemini both read when drafting a plan.',
+  confighistory: 'Riwayat setiap perubahan Master Config — edit teks maupun upload gambar.',
   dashboard: 'Ringkasan status konten plan untuk organisasi ini.'
 };
 
@@ -303,8 +308,14 @@ function closeMobileSidebar(){
   $('sidebar-overlay').classList.remove('open');
 }
 
-/* ---------- master config (inline section, one file per sidebar link) ---------- */
+/* ---------- master config (inline section, one category per sidebar link) ---------- */
+// Each category (Brand Context, Brand Voice, ...) is a *list* of entries — short text notes or
+// attached reference images, addable/editable/removable one at a time — not one big hand-edited
+// document. The underlying .md file Claude/Gemini actually read is auto-regenerated server-side
+// from these entries on every change; this page only ever talks to the entries API.
 let activeConfigId = null;
+let configEntriesCache = [];
+let configAddMode = 'text';
 
 async function openConfigFile(id){
   activeConfigId = id;
@@ -316,17 +327,147 @@ async function openConfigFile(id){
     <div class="config-explainer-row"><b>How to write it</b><p>${esc(explainer.how)}</p></div>
   ` : '';
 
-  $('config-editor').value = 'Loading…';
-  const data = await api('/api/config/' + id);
-  $('config-editor').value = (data && data.content) || '';
-  $('config-save-status').textContent = '';
+  $('config-entries-list').innerHTML = '<div class="rec-item">Loading…</div>';
+  $('config-entry-add-status').textContent = '';
+  setConfigAddMode('text');
+  configEntriesCache = await api('/api/config/' + id + '/entries') || [];
+  renderConfigEntries();
 }
-async function saveConfig(){
+
+function renderConfigEntries(){
+  $('config-entries-list').innerHTML = configEntriesCache.map((e, idx) => e.type === 'file' ? `
+    <div class="card" style="padding:12px; display:flex; gap:12px; align-items:flex-start;">
+      <img src="data:${e.mimeType};base64,${e.data}" style="width:64px; height:64px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--border); flex-shrink:0;">
+      <div style="flex:1;"><b>${esc(e.title)}</b><br><span style="font-size:12px; color:var(--fg-muted);">${fmtDateTime(e.createdAt)}</span></div>
+      <button class="btn btn-outline btn-sm" data-config-entry-remove="${idx}">Remove</button>
+    </div>
+  ` : `
+    <div class="card" style="padding:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+        <div style="flex:1;">
+          <input type="text" data-config-entry-title="${idx}" value="${esc(e.title)}" style="font-weight:600; border:none; background:transparent; padding:0; margin-bottom:6px; width:100%;">
+          <textarea data-config-entry-content="${idx}" class="config-textarea" style="min-height:70px;">${esc(e.content)}</textarea>
+          <span style="font-size:12px; color:var(--fg-muted);">${fmtDateTime(e.createdAt)}</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-outline btn-sm" data-config-entry-save="${idx}">Save</button>
+          <button class="btn btn-outline btn-sm" data-config-entry-remove="${idx}">Remove</button>
+        </div>
+      </div>
+    </div>
+  `).join('') || '<div class="rec-item">Belum ada isi — tambahkan lewat form di bawah.</div>';
+
+  $('config-entries-list').querySelectorAll('[data-config-entry-save]').forEach(btn => {
+    btn.addEventListener('click', () => saveConfigEntry(Number(btn.dataset.configEntrySave)));
+  });
+  $('config-entries-list').querySelectorAll('[data-config-entry-remove]').forEach(btn => {
+    btn.addEventListener('click', () => removeConfigEntry(Number(btn.dataset.configEntryRemove)));
+  });
+}
+
+async function saveConfigEntry(idx){
+  const entry = configEntriesCache[idx];
+  if(!entry) return;
+  const title = document.querySelector(`[data-config-entry-title="${idx}"]`).value;
+  const content = document.querySelector(`[data-config-entry-content="${idx}"]`).value;
+  const res = await api(`/api/config/${activeConfigId}/entries/${entry.id}`, { method:'PUT', body: JSON.stringify({ title, content }) });
+  if(res && res.id){ entry.title = res.title; entry.content = res.content; renderConfigEntries(); }
+}
+
+async function removeConfigEntry(idx){
+  const entry = configEntriesCache[idx];
+  if(!entry) return;
+  if(!confirm(`Hapus "${entry.title}"?`)) return;
+  await api(`/api/config/${activeConfigId}/entries/${entry.id}`, { method:'DELETE' });
+  configEntriesCache.splice(idx, 1);
+  renderConfigEntries();
+}
+
+function setConfigAddMode(mode){
+  configAddMode = mode;
+  $('config-add-mode-text').classList.toggle('active', mode === 'text');
+  $('config-add-mode-file').classList.toggle('active', mode === 'file');
+  $('config-add-text-fields').style.display = mode === 'text' ? '' : 'none';
+  $('config-add-file-fields').style.display = mode === 'file' ? '' : 'none';
+}
+
+async function addConfigEntry(){
   if(!activeConfigId) return;
-  $('config-save-status').textContent = 'Saving…';
-  const content = $('config-editor').value;
-  const res = await api('/api/config/' + activeConfigId, { method:'PUT', body: JSON.stringify({ content }) });
-  $('config-save-status').textContent = res && res.ok ? 'Saved — Claude will read this updated version next time you generate a plan in chat.' : 'Could not save.';
+  $('config-entry-add-status').textContent = 'Adding…';
+  let body;
+  if(configAddMode === 'file'){
+    const file = ($('config-entry-file-input').files || [])[0];
+    if(!file){ $('config-entry-add-status').textContent = 'Pilih file gambar dulu.'; return; }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    body = { type: 'file', title: $('config-entry-file-title').value || file.name, mimeType: file.type, data: dataUrl.split(',')[1] };
+  } else {
+    const content = $('config-entry-content').value;
+    if(!content.trim()){ $('config-entry-add-status').textContent = 'Isi teksnya dulu.'; return; }
+    body = { type: 'text', title: $('config-entry-title').value || 'Untitled', content };
+  }
+  const res = await api(`/api/config/${activeConfigId}/entries`, { method:'POST', body: JSON.stringify(body) });
+  if(res && res.id){
+    configEntriesCache.push(res);
+    renderConfigEntries();
+    $('config-entry-title').value = '';
+    $('config-entry-content').value = '';
+    $('config-entry-file-title').value = '';
+    $('config-entry-file-input').value = '';
+    $('config-entry-add-status').textContent = 'Ditambahkan.';
+  } else {
+    $('config-entry-add-status').textContent = (res && res.error) || 'Gagal menambahkan.';
+  }
+}
+
+/* ---------- master config update history (unified log: text edits + image uploads) ---------- */
+let configHistoryCache = [];
+
+async function loadConfigHistory(){
+  configHistoryCache = await api('/api/master-config-history') || [];
+  renderConfigHistoryList();
+  $('confighistory-detail').innerHTML = '<div class="rec-item">Pilih salah satu update di kiri.</div>';
+}
+
+function renderConfigHistoryList(){
+  $('confighistory-list').innerHTML = configHistoryCache.map((e, idx) => `
+    <div class="rec-item" data-history-idx="${idx}" style="cursor:pointer;">
+      <div class="rec-icon">${e.type === 'image' ? '🖼' : '📝'}</div>
+      <div>
+        <b>${esc(e.label || '')}</b><br>
+        <span style="color:var(--fg-muted);">${fmtDateTime(e.timestamp)}</span>
+      </div>
+    </div>
+  `).join('') || '<div class="rec-item">Belum ada riwayat perubahan.</div>';
+  $('confighistory-list').querySelectorAll('[data-history-idx]').forEach(el => {
+    el.addEventListener('click', () => {
+      $('confighistory-list').querySelectorAll('[data-history-idx]').forEach(x => x.style.background = '');
+      el.style.background = 'var(--accent-50)';
+      showConfigHistoryDetail(Number(el.dataset.historyIdx));
+    });
+  });
+}
+
+function showConfigHistoryDetail(idx){
+  const e = configHistoryCache[idx];
+  if(!e) return;
+  if(e.type === 'image'){
+    $('confighistory-detail').innerHTML = `
+      <h3 style="margin:0 0 6px; font-size:15px;">${esc(e.label)}</h3>
+      <p style="color:var(--fg-muted); font-size:12px; margin:0 0 14px;">${fmtDateTime(e.timestamp)}</p>
+      <img src="data:${e.mimeType};base64,${e.data}" style="max-width:100%; border-radius:var(--radius-md); border:1px solid var(--border);">
+    `;
+  } else {
+    $('confighistory-detail').innerHTML = `
+      <h3 style="margin:0 0 6px; font-size:15px;">${esc(e.label)}</h3>
+      <p style="color:var(--fg-muted); font-size:12px; margin:0 0 14px;">${fmtDateTime(e.timestamp)}</p>
+      <textarea class="config-textarea" readonly>${esc(e.content || '')}</textarea>
+    `;
+  }
 }
 
 /* ---------- competitor analytics ---------- */
@@ -2192,9 +2333,51 @@ function fmtDateTime(iso){
   return new Date(iso).toLocaleString('en-US', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
+/* ---------- brand summary (AI synthesis of the 5 Master Config files + uploaded brand images) ---------- */
+function renderBrandSummary(result){
+  const s = result && result.summary;
+  if(!s){
+    $('brand-summary-body').innerHTML = '<div class="rec-item">Belum pernah di-generate.</div>';
+    return;
+  }
+  $('brand-summary-body').innerHTML = `
+    <p style="font-weight:600; margin:0 0 10px;">${esc(s.oneLiner || '')}</p>
+    <div class="chiprow" style="margin-bottom:12px;">${(s.toneWords || []).map(w => `<span class="chip active">${esc(w)}</span>`).join('')}</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:10px;">
+      <div><b style="font-size:12px; color:var(--fg-muted);">Positioning</b><p style="margin:4px 0 0; font-size:13.5px;">${esc(s.positioning || '')}</p></div>
+      <div><b style="font-size:12px; color:var(--fg-muted);">Target Audience</b><p style="margin:4px 0 0; font-size:13.5px;">${esc(s.targetAudience || '')}</p></div>
+      <div><b style="font-size:12px; color:var(--fg-muted);">Visual Identity</b><p style="margin:4px 0 0; font-size:13.5px;">${esc(s.visualIdentity || '')}</p></div>
+      <div><b style="font-size:12px; color:var(--fg-muted);">Key Rules</b><ul style="margin:4px 0 0; padding-left:18px; font-size:13.5px;">${(s.keyRules || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>
+    </div>
+    <div style="font-size:11.5px; color:var(--fg-muted);">Digenerate ${fmtDateTime(result.generatedAt)}</div>
+  `;
+}
+
+async function loadBrandSummary(){
+  const result = await api('/api/brand-summary');
+  renderBrandSummary(result);
+}
+
+async function generateBrandSummary(){
+  const btn = $('btn-brand-summary-generate');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  $('brand-summary-status').textContent = '';
+  const result = await api('/api/brand-summary/generate', { method: 'POST' });
+  btn.disabled = false;
+  btn.textContent = originalText;
+  if(result && result.summary){
+    renderBrandSummary(result);
+  } else {
+    $('brand-summary-status').textContent = (result && result.error) || 'Gagal generate summary.';
+  }
+}
+
 async function loadDashboard(){
   const data = await api('/api/dashboard');
   if(!data) return;
+  loadBrandSummary();
 
   $('dash-kpi-posts').textContent = data.totalPosts;
   $('dash-kpi-upcoming').textContent = data.upcomingCount7d;

@@ -888,11 +888,16 @@ app.post('/api/canva/autofill/brief/:id', async (req, res) => {
 });
 
 // --- Master config API (scoped to the logged-in org) ---
+function configEntriesFile(slug, id) { return path.join(orgConfigDir(slug), `${id}.entries.json`); }
+
 function resolveConfigPath(org, id) {
   // Shared-config orgs (Buranchi) read the 4 original files from the external Marketing/_context
   // folder. A config key added later (like brand-visual-identity) that was never part of that
   // external set falls through to the normal per-org local file instead of a hard 404.
-  if (org.useSharedConfig && BURANCHI_CONFIG_FILES[id]) {
+  // Once someone adds/edits an entry via the list UI for one of those 4 (configEntriesFile exists
+  // locally), this org+id "forks" to its own local copy from then on — the shared external file
+  // is only ever a read-only seed, never overwritten by in-app edits.
+  if (org.useSharedConfig && BURANCHI_CONFIG_FILES[id] && !fs.existsSync(configEntriesFile(org.slug, id))) {
     return BURANCHI_CONFIG_FILES[id].path;
   }
   const meta = CONFIG_LABELS[id];
@@ -914,6 +919,117 @@ app.get('/api/config/:id', (req, res) => {
   }
 });
 
+// Each Master Config category (Brand Context, Brand Voice, ...) is really a *list* of entries —
+// short text notes or attached reference images/files, addable/editable/removable one at a time —
+// rather than one giant hand-edited document. The flat .md file at resolveConfigPath() still
+// exists and still is what every AI generation call in this app reads; it's just now a derived,
+// auto-regenerated concatenation of the text entries below, kept in sync on every add/edit/remove
+// so nothing else in the codebase needs to change.
+function loadConfigEntries(org, id) {
+  const entriesPath = configEntriesFile(org.slug, id);
+  const existing = readJson(entriesPath, null);
+  if (existing) return existing;
+  // First time this category is opened under the new list UI — migrate whatever was already
+  // there (the old single hand-edited file, shared or local) into one seed entry so nothing
+  // written before this feature existed is lost.
+  let legacyContent = '';
+  try { legacyContent = fs.readFileSync(resolveConfigPath(org, id), 'utf8'); } catch (e) { /* nothing to migrate */ }
+  const seeded = legacyContent && legacyContent.trim()
+    ? [{ id: crypto.randomUUID(), type: 'text', title: 'Original content', content: legacyContent, createdAt: new Date().toISOString() }]
+    : [];
+  writeJson(entriesPath, seeded);
+  return seeded;
+}
+
+function regenerateConfigFile(org, id, entries) {
+  const meta = CONFIG_LABELS[id];
+  if (!meta) return;
+  const localPath = path.join(orgConfigDir(org.slug), meta.file);
+  const combined = entries.map(e => e.type === 'text'
+    ? `## ${e.title || 'Untitled'}\n\n${e.content || ''}`
+    : `## ${e.title || e.name || 'Attachment'}\n\n(Attached image — see Master Config in the app to view it.)`
+  ).join('\n\n---\n\n');
+  fs.mkdirSync(path.dirname(localPath), { recursive: true });
+  fs.writeFileSync(localPath, combined, 'utf8');
+}
+
+app.get('/api/config/:id/entries', (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!CONFIG_LABELS[req.params.id]) return res.status(404).json({ error: 'Unknown config file' });
+  res.json(loadConfigEntries(org, req.params.id));
+});
+
+app.post('/api/config/:id/entries', (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const id = req.params.id;
+  const meta = CONFIG_LABELS[id];
+  if (!meta) return res.status(404).json({ error: 'Unknown config file' });
+  const { type, title, content, mimeType, data } = req.body || {};
+  let entry;
+  if (type === 'file') {
+    if (!mimeType || !mimeType.startsWith('image/') || !data) return res.status(400).json({ error: 'A valid image (mimeType + base64 data) is required.' });
+    entry = { id: crypto.randomUUID(), type: 'file', title: title || 'Attachment', mimeType, data, createdAt: new Date().toISOString() };
+  } else {
+    if (!content || !content.trim()) return res.status(400).json({ error: 'Content is required.' });
+    entry = { id: crypto.randomUUID(), type: 'text', title: title || 'Untitled', content, createdAt: new Date().toISOString() };
+  }
+  const entries = loadConfigEntries(org, id);
+  entries.push(entry);
+  writeJson(configEntriesFile(org.slug, id), entries);
+  regenerateConfigFile(org, id, entries);
+  appendConfigHistory(org.slug, entry.type === 'file'
+    ? { type: 'image', label: `${meta.label}: "${entry.title}" added`, mimeType: entry.mimeType, data: entry.data, assetId: entry.id }
+    : { type: 'text', configId: id, label: `${meta.label}: "${entry.title}" added`, content: entry.content });
+  res.status(201).json(entry);
+});
+
+app.put('/api/config/:id/entries/:entryId', (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const id = req.params.id;
+  const meta = CONFIG_LABELS[id];
+  if (!meta) return res.status(404).json({ error: 'Unknown config file' });
+  const { title, content } = req.body || {};
+  const entries = loadConfigEntries(org, id);
+  const entry = entries.find(e => e.id === req.params.entryId && e.type === 'text');
+  if (!entry) return res.status(404).json({ error: 'Entry not found (only text entries can be edited — remove and re-add a file entry instead).' });
+  if (typeof title === 'string') entry.title = title;
+  if (typeof content === 'string') entry.content = content;
+  writeJson(configEntriesFile(org.slug, id), entries);
+  regenerateConfigFile(org, id, entries);
+  appendConfigHistory(org.slug, { type: 'text', configId: id, label: `${meta.label}: "${entry.title}" updated`, content: entry.content });
+  res.json(entry);
+});
+
+app.delete('/api/config/:id/entries/:entryId', (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const id = req.params.id;
+  const meta = CONFIG_LABELS[id];
+  if (!meta) return res.status(404).json({ error: 'Unknown config file' });
+  const entries = loadConfigEntries(org, id);
+  const entry = entries.find(e => e.id === req.params.entryId);
+  const next = entries.filter(e => e.id !== req.params.entryId);
+  writeJson(configEntriesFile(org.slug, id), next);
+  regenerateConfigFile(org, id, next);
+  if (entry) appendConfigHistory(org.slug, { type: entry.type === 'file' ? 'image' : 'text', label: `${meta.label}: "${entry.title}" removed`, content: '(removed)' });
+  res.json({ ok: true });
+});
+
+// --- Master Config update history — every text save or image upload becomes one entry in a
+// single chronological log per org, so someone can see "what changed and when" across all 5
+// files plus brand images without hunting through each file separately. Capped so the log file
+// can't grow unbounded (image entries carry their own base64 data, which adds up).
+function configHistoryFile(slug) { return path.join(orgDataDir(slug), 'master-config-history.json'); }
+const MAX_HISTORY_ENTRIES = 30;
+function appendConfigHistory(slug, entry) {
+  const history = readJson(configHistoryFile(slug), []);
+  history.unshift({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), ...entry });
+  writeJson(configHistoryFile(slug), history.slice(0, MAX_HISTORY_ENTRIES));
+}
+
+app.get('/api/master-config-history', (req, res) => {
+  res.json(readJson(configHistoryFile(req.session.orgSlug), []));
+});
+
 app.put('/api/config/:id', (req, res) => {
   const org = findOrgBySlug(req.session.orgSlug);
   const filePath = org && resolveConfigPath(org, req.params.id);
@@ -922,7 +1038,85 @@ app.put('/api/config/:id', (req, res) => {
   if (typeof content !== 'string') return res.status(400).json({ error: 'content must be a string' });
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content, 'utf8');
+  const label = (CONFIG_LABELS[req.params.id] || {}).label || req.params.id;
+  appendConfigHistory(org.slug, { type: 'text', configId: req.params.id, label: `${label} updated`, content });
   res.json({ ok: true });
+});
+
+// --- Brand Summary — an AI synthesis of the 5 Master Config files (+ any uploaded brand
+// images) into a short "at a glance" brief, so nobody has to read all 5 docs before writing
+// content for a client. Generated on demand (never automatically) and cached per org, so it
+// only costs a Gemini call when someone actually asks for a refresh.
+function brandSummaryFile(slug) { return path.join(orgDataDir(slug), 'brand-summary.json'); }
+function brandAssetsFile(slug) { return path.join(orgDataDir(slug), 'brand-assets.json'); }
+const MAX_BRAND_ASSETS = 6;
+
+app.get('/api/brand-summary', (req, res) => {
+  res.json(readJson(brandSummaryFile(req.session.orgSlug), { summary: null, generatedAt: null }));
+});
+
+app.get('/api/brand-assets', (req, res) => {
+  res.json(readJson(brandAssetsFile(req.session.orgSlug), []));
+});
+
+app.post('/api/brand-assets', (req, res) => {
+  const { name, mimeType, data } = req.body || {};
+  if (!mimeType || !mimeType.startsWith('image/') || !data) return res.status(400).json({ error: 'A valid image (mimeType + base64 data) is required.' });
+  const assets = readJson(brandAssetsFile(req.session.orgSlug), []);
+  if (assets.length >= MAX_BRAND_ASSETS) return res.status(400).json({ error: `Max ${MAX_BRAND_ASSETS} brand images — remove one first.` });
+  const asset = { id: crypto.randomUUID(), name: name || 'image', mimeType, data, uploadedAt: new Date().toISOString() };
+  assets.push(asset);
+  writeJson(brandAssetsFile(req.session.orgSlug), assets);
+  appendConfigHistory(req.session.orgSlug, { type: 'image', label: `Image uploaded: ${asset.name}`, mimeType: asset.mimeType, data: asset.data, assetId: asset.id });
+  res.status(201).json(asset);
+});
+
+app.delete('/api/brand-assets/:id', (req, res) => {
+  const assets = readJson(brandAssetsFile(req.session.orgSlug), []);
+  writeJson(brandAssetsFile(req.session.orgSlug), assets.filter(a => a.id !== req.params.id));
+  res.json({ ok: true });
+});
+
+const BRAND_SUMMARY_PROMPT = `You are synthesizing a brand's Master Config files (Brand Context, Brand Voice, Ideal Customer Profile, Brand Visual Identity, and Assistant Instructions) — plus any brand images provided — into a short "at a glance" brief for someone about to write content for this brand today, who hasn't read the full files.
+
+Return strict JSON with this shape, nothing else:
+{
+  "oneLiner": "one sentence capturing what this brand is and its core differentiator",
+  "positioning": "2-3 sentences on positioning and current priorities",
+  "toneWords": ["3-6 short words/phrases describing the voice"],
+  "targetAudience": "2-3 sentences on who this content is for",
+  "visualIdentity": "2-3 sentences on the visual system — colors, typography, logo usage, and what the provided images show if any",
+  "keyRules": ["3-6 short standing rules or guardrails to never violate"]
+}
+
+If a section has no real source material, say so plainly in that field instead of inventing anything ("Not documented yet" style) — never fabricate specifics.`;
+
+app.post('/api/brand-summary/generate', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'No Gemini API key configured for this client.' });
+
+  const fileIds = ['brand-context', 'brand-voice', 'icp', 'brand-visual-identity', 'compass-assistant'];
+  const sections = fileIds.map(id => {
+    const filePath = resolveConfigPath(org, id);
+    let content = '';
+    try { content = fs.readFileSync(filePath, 'utf8'); } catch (e) { /* not written yet */ }
+    return `### ${CONFIG_LABELS[id].label}\n${content || '(empty)'}`;
+  }).join('\n\n');
+
+  const assets = readJson(brandAssetsFile(org.slug), []);
+  const entryImages = fileIds.flatMap(id => loadConfigEntries(org, id).filter(e => e.type === 'file'));
+  const imageParts = [...assets, ...entryImages].map(a => ({ inlineData: { mimeType: a.mimeType, data: a.data } }));
+  const contents = [{ role: 'user', parts: [{ text: sections }, ...imageParts] }];
+
+  try {
+    const { parsed } = await callGeminiJSON(apiKey, BRAND_SUMMARY_PROMPT, contents);
+    const result = { summary: parsed, generatedAt: new Date().toISOString() };
+    writeJson(brandSummaryFile(org.slug), result);
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // --- Competitor analytics API (scoped to the logged-in org) ---

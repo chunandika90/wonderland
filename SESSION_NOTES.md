@@ -1,4 +1,4 @@
-# Session Recap — Wonderland (2026-08-31 → 2026-09-01)
+# Session Recap — Wonderland (2026-08-31 → 2026-09-02)
 
 ## Masalah awal
 `wccn.co.id/wonderland` cuma nampilin raw directory listing — app-nya belum pernah didaftarin sebagai Node.js App di cPanel sama sekali.
@@ -34,3 +34,12 @@ Beberapa org di `data/orgs.json` ternyata data tes lama yang nggak match client 
 
 ## File sensitif — TIDAK di-commit ke repo ini
 `.env`, `.env.cpanel` (kredensial FTP/cPanel), `data/` (berisi `internal-users.json` — password plaintext staff — dan `orgs.json` — API key Apify & Gemini), `service-accounts/wonderland-drive-reader.json` (kredensial Google service account). Semua sudah di-`.gitignore`.
+
+## Master Config: dari 1 file besar jadi list add/edit per kategori (2026-09-02)
+Sebelumnya tiap kategori (Brand Context, Brand Voice, Brand Visual Identity, Ideal Customer Profile, Wonderland Assistant Instructions) adalah 1 file `.md` yang di-edit sebagai satu blok teks besar. Diubah jadi model list: tiap kategori punya banyak **entry** kecil yang bisa ditambah/edit/hapus satu-satu, masing-masing berupa teks (judul + isi) atau attachment gambar.
+
+- **Data model**: `data/orgs/<slug>/config/<id>.entries.json` — array of `{id, type:'text'|'file', title, content|mimeType+data, createdAt}`. File `.md` lama tetap ada dan tetap yang dibaca semua kode AI-generation lain di app ini (content plan, campaign brief, chat, dst) — sekarang auto-di-regenerate (concatenated dari entries) tiap kali ada entry ditambah/edit/hapus, jadi tidak ada kode lain yang perlu diubah.
+- **Migrasi otomatis**: kategori yang belum pernah dibuka lewat UI baru ini akan migrasi kontennya jadi 1 entry "Original content" saat pertama kali dibuka — tidak ada data hilang.
+- **Kasus khusus Buranchi**: 4 dari 5 kategori Buranchi (semua kecuali Brand Visual Identity) `useSharedConfig: true` — dibaca dari file eksternal di luar folder Wonderland (kemungkinan dikelola manual oleh tim lain). Begitu satu entry ditambah/diedit lewat UI baru untuk salah satu dari 4 itu, kategori itu **"fork"** jadi file lokal Wonderland sendiri (`resolveConfigPath` cek: kalau `<id>.entries.json` sudah ada secara lokal, pakai itu, bukan file eksternal lagi) — file eksternal aslinya tidak pernah ditimpa, tapi juga berhenti nyambung begitu di-fork.
+- **Update History** (halaman baru di sidebar Master Config): log kronologis semua transaksi (tiap `text added/updated/removed` atau `image added/removed`) lintas 5 kategori, dibatasi 30 entry terakhir per client (`data/orgs/<slug>/master-config-history.json`). Klik satu entry di list kiri nampilin isi lengkapnya di kanan (isi teks versi itu, atau preview gambarnya).
+- **Brand Summary** (kartu AI di Dashboard, dibuat lebih awal sesi ini): sekarang narik gambar attachment dari kelima kategori itu juga (bukan cuma dari bucket generik `brand-assets.json` yang sempat dibuat lalu di-deprecate UI-nya karena kepakai attachment per-kategori).
