@@ -69,3 +69,59 @@ Copy `.htaccess` di `D:\Juan\wonderland` ternyata masih versi lama yang isinya b
 **Fix:** versi live ditarik turun (`GET /execute/Fileman/get_file_content?dir=public_html/wonderland&file=.htaccess`) lalu dipakai nimpa file lokal — sekarang lokal byte-identical sama live. Isi live cuma blok `wonderland` + `SetEnv BASE_PATH /wonderland`; `COMPASS_SECRET` dan `APIFY_API_TOKEN` yang nangkring di file lokal lama memang sudah tidak ada di live.
 
 **Sekalian di-gitignore.** `.htaccess` itu tempat `SetEnv` nyimpen nilai rahasia plaintext dan isinya beda per environment, jadi sekarang di-ignore di dua tempat: `D:\Juan\wonderland\.gitignore` (`.htaccess`) dan repo ini (`app/.htaccess`). File ini belum pernah ke-commit (`git log --all -- '*.htaccess'` kosong, dan di file yang ke-track cuma *nama* variabelnya yang muncul), jadi tidak ada kredensial yang perlu di-rotate — ignore-nya murni pencegahan.
+
+## Fase 1: Content Plan — grounding, keandalan, dan alat ukur (2026-09-03)
+Hasil audit dua sisi (Fable + Opus) atas `/api/generate-plan`. Tujuh perbaikan yang keduanya
+sepakati, dikerjakan sekaligus karena saling bergantung pada satu refactor.
+
+**Refactor dasar**: perakitan prompt dikeluarkan dari route jadi `buildContentPlanPrompt(org, body)`,
+yang sekarang mengembalikan `systemInstruction` dan `prompt` terpisah. Ini yang memungkinkan enam
+perubahan lain di bawah.
+
+- **4 dari 5 file Master Config tidak pernah terpakai.** `readConfig()` hanya pernah dipanggil dengan
+  `'compass-assistant'` di empat tempat — Brand Context, Brand Voice, ICP, dan Brand Visual Identity
+  ditulis dan diedit di Master Config tapi tidak pernah masuk prompt generation mana pun (hanya ke
+  kartu Brand Summary di Dashboard). Sekarang keempatnya masuk sebagai blok BRAND KNOWLEDGE di
+  `systemInstruction`. Placeholder `(Fill this in via Master Config)` disaring supaya org kosong
+  tidak mengirim teks kosong.
+- **Kontradiksi instruksi diselesaikan eksplisit.** Dokumen assistant ditulis sebagai persona chat:
+  §5/§7 menyuruh model bertanya kalau info kurang, §6 menyuruh output dalam fenced ```js block —
+  sementara TASK melarang keduanya. Log menunjukkan tabrakan ini menghasilkan run 0-post berulang
+  (satu run output-nya 1 token). Ditambahkan blok OPERATING MODE yang menyatakan urutan menang,
+  tanpa mengubah isi Master Config milik user.
+- **Pindah ke `callGeminiJSON`.** Route ini satu-satunya yang masih pakai `fetch` telanjang + satu
+  `JSON.parse`; primitif yang benar (3× retry parse, `systemInstruction` terpisah, fallback 503)
+  sudah ada 400 baris di bawahnya sejak lama. Satu parse gagal dulu menghilangkan seluruh run.
+- **Fallback 503 dipulihkan.** Cabang itu ditulis waktu `GEMINI_MODEL` masih `gemini-flash-latest`
+  dan jatuh ke lite satu tier di bawah. Begitu konstantanya sendiri diset ke lite (karena
+  flash-latest kena 503 "high demand" terus-menerus — lihat komentar di atas konstanta), cabangnya
+  menunjuk ke dirinya sendiri dan mati. Sekarang dinamai `GEMINI_FALLBACK_MODEL` supaya hidup lagi
+  otomatis begitu modelnya dinaikkan.
+- **Validator server-side** (`validateGeneratedPosts`): `referenceCategory` dicek keanggotaannya di
+  kategori snapshot analytics, `directoryAKeyword` di nama folder manifest Directory A, dan `day`
+  dihitung ulang dari tanggalnya. Sebelumnya pengecekan hanya terjadi di client, setelah fakta, dan
+  gagal diam-diam. Uji nyata langsung menangkap 4 field `day` yang salah dalam satu run.
+- **Observabilitas**: `logGeneration` sekarang mencatat `durationMs`, `provider`, `agent`, dan jumlah
+  koreksi — dan **kegagalan ikut dicatat**, yang sebelumnya tidak, sehingga histori tidak bisa
+  membedakan prompt jelek dari gangguan API.
+- **`POST /api/generate-plan/prompt`** + tombol "Copy prompt for a chat session": mengembalikan prompt
+  rakitan alih-alih mengirimnya ke model, supaya plan bisa dikerjakan di sesi chat lalu dibawa balik
+  lewat kotak paste yang memang sudah ada sejak desain awal. Sekaligus jadi alat ukur: string persis
+  yang diterima model.
+
+### Hasil pengukuran (buranchi, 6 generate nyata, sebelum vs sesudah)
+| | Sebelum | Sesudah |
+|---|---|---|
+| Prompt | 6.772 token | 10.073 token |
+| Waktu generate | 10,5–13,8 dtk | 4,8–5,8 dtk |
+| Brand knowledge | tidak ada | 3 bagian |
+
+Prompt 49% lebih besar tapi konsisten ~2× lebih cepat di enam run — dugaan: `systemInstruction`
+diperlakukan berbeda, belum dikonfirmasi.
+
+**Yang tidak membaik — dan ini temuan pentingnya:** penalaran tanggal tidak bergerak sama sekali.
+Diulang 3×, hasilnya identik: "tanggal kembar Sep–Okt" tetap 2/4 benar (benar di Sep 9 dan Oct 10,
+lalu menambal dengan tanggal acak — persis yang dilarang prompt-nya sendiri), "promo weekend" tetap
+1/4 jatuh di akhir pekan. Stabil, bukan variasi. Artinya masalahnya bukan konteks melainkan
+kemampuan model di tier `gemini-flash-lite`. Langkah berikutnya menaikkan tier dulu; Schedule Agent
+terpisah baru terbukti perlu kalau itu pun gagal.

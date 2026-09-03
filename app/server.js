@@ -1770,6 +1770,11 @@ cron.schedule('0 0 * * *', async () => {
 // gemini-flash-latest (3.7-flash) was hitting sustained 503 "high demand" during testing —
 // the lite alias resolved fine, so defaulting to it for reliability. Swap back once capacity frees up.
 const GEMINI_MODEL = 'gemini-flash-lite-latest';
+// The 503 fallback below was written when GEMINI_MODEL was 'gemini-flash-latest' and dropped one
+// tier to the lite alias. It went dead the moment the constant itself was set to lite — the branch
+// pointed at the model already in use. Naming the fallback separately makes it live again as soon
+// as GEMINI_MODEL moves back up, without anyone having to remember this history.
+const GEMINI_FALLBACK_MODEL = 'gemini-flash-lite-latest';
 
 function orgGenerationLogFile(slug) { return path.join(orgDataDir(slug), 'ai-generations.json'); }
 function logGeneration(slug, entry) {
@@ -1782,20 +1787,80 @@ app.get('/api/generate-plan/history', (req, res) => {
   res.json(readJson(orgGenerationLogFile(req.session.orgSlug), []).reverse());
 });
 
-app.post('/api/generate-plan', async (req, res) => {
+// Checks the two fields that must come from a closed list. A wrong value here is worse than an
+// empty one — it surfaces an unrelated photo under a false category label — and until now the only
+// check happened in the browser, after the fact, failing silently when it missed. Returns the
+// corrections it made so the caller can show and log them instead of hiding them.
+function validateGeneratedPosts(org, posts) {
+  const corrections = [];
+  const snapshot = loadLatestAnalyticsSnapshot(org.slug);
+  const categories = [...new Set(((snapshot && snapshot.data && snapshot.data.posts) || []).map(p => p.category).filter(Boolean))];
+  const manifest = loadDirectoryAManifest(org.slug);
+  const folders = [...new Set(((manifest && manifest.files) || []).map(f => (f.path || '').split('/').filter(Boolean)[0]).filter(Boolean))];
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  posts.forEach((p, index) => {
+    if (!p || typeof p !== 'object') return;
+
+    const rc = (p.referenceCategory || '').trim();
+    if (rc && categories.length && !categories.some(c => c.toLowerCase() === rc.toLowerCase())) {
+      corrections.push({ index, field: 'referenceCategory', dropped: rc });
+      p.referenceCategory = '';
+    }
+
+    const dk = (p.directoryAKeyword || '').trim();
+    if (dk && folders.length && !folders.some(f => f.toLowerCase().includes(dk.toLowerCase()) || dk.toLowerCase().includes(f.toLowerCase()))) {
+      corrections.push({ index, field: 'directoryAKeyword', dropped: dk });
+      p.directoryAKeyword = '';
+    }
+
+    // `day` is arithmetic, not judgement — derive it rather than trusting what came back.
+    const parsed = parsePostDateServer(p);
+    if (parsed) {
+      const real = DAYS[parsed.getDay()];
+      if (p.day && p.day !== real) corrections.push({ index, field: 'day', dropped: p.day, replacedWith: real });
+      p.day = real;
+    }
+  });
+
+  return { corrections };
+}
+
+// Assembles everything a Content Plan request needs: the assistant instructions and brand
+// knowledge as a system instruction, and the live evidence (competitor recommendations, real
+// scraped samples, the org's own scheduled posts, Directory A, the shoot/existing-asset mode
+// block, the task) as the user turn. Extracted from the route so the same strings can be sent
+// to a model OR handed to the user to paste into a chat session.
+// Returns the assembled prompt instead of sending it anywhere — so a plan can be produced in a
+// chat session and pasted back through the existing "paste from a Claude chat session" box. Also
+// the measurement instrument: the exact strings a model would have received.
+app.post('/api/generate-plan/prompt', (req, res) => {
   const org = findOrgBySlug(req.session.orgSlug);
   if (!org) return res.status(404).json({ ok: false, error: 'Organization not found' });
-  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-gemini-key.js, then try again.' });
+  try {
+    const built = buildContentPlanPrompt(org, req.body || {});
+    const combined = built.systemInstruction + '\n\n' + built.prompt;
+    res.json({
+      ok: true,
+      systemInstruction: built.systemInstruction,
+      prompt: built.prompt,
+      combined,
+      totalCount: built.totalCount,
+      mode: built.mode,
+      imageCount: built.imageParts.length,
+      hasBrandKnowledge: !!built.brandKnowledge,
+      chars: combined.length,
+      approxTokens: Math.round(combined.length / 4), // ~4 chars/token: enough to size a paste
+      note: built.clamped ? `Requested ${built.requestedTotal} posts, clamped to the org's guardrail max of ${built.maxPosts}.` : null
+    });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
 
-  // maxPostsPerProposal (Chat AI Agent > Guardrails) is a hard ceiling shared with the other
-  // generation surfaces; totalCount from the question box is a request within that ceiling, not
-  // a replacement for it. Gemini decides the actual dates itself from the context text (e.g.
-  // "tanggal kembar Agustus-September" should land on non-consecutive dates spanning two months,
-  // not just "the next N days from today").
+function buildContentPlanPrompt(org, body) {
   const guardrails = loadGuardrails(org.slug);
   const maxPosts = guardrails.maxPostsPerProposal;
-  const body = req.body || {};
   const requestedTotal = Number.isFinite(parseInt(body.totalCount, 10)) && parseInt(body.totalCount, 10) > 0 ? parseInt(body.totalCount, 10) : null;
   const feedCount = Number.isFinite(parseInt(body.feedCount, 10)) && parseInt(body.feedCount, 10) >= 0 ? parseInt(body.feedCount, 10) : null;
   const storyCount = Number.isFinite(parseInt(body.storyCount, 10)) && parseInt(body.storyCount, 10) >= 0 ? parseInt(body.storyCount, 10) : null;
@@ -1827,10 +1892,17 @@ EXISTING ASSET LIBRARY (synced from the client's Google Drive — Directory A):
 ${directoryASummary || "Not synced yet — no existing asset library data is available. Say so plainly in a post's strategicRationale rather than inventing folder names, and fall back to Master Config's brand/product descriptions only."}`
     : `SHOOT MODE: These posts have NOT been photographed yet — this plan doubles as a shoot brief. For every post, the "photo" field must be concrete, actionable direction for the photographer/videographer: subject, framing/angle, lighting, props, location, and any reference points (competitor posts, mood boards, style) to shoot toward. Describe what needs to be captured, not a photo that already exists.`;
 
-  const readConfig = (id) => { try { return fs.readFileSync(resolveConfigPath(org, id), 'utf8'); } catch (e) { return ''; } };
-  const assistantInstructions = org.useSharedConfig
-    ? (() => { try { return fs.readFileSync(BURANCHI_CONFIG_FILES['compass-assistant'].path, 'utf8'); } catch (e) { return ''; } })()
-    : readConfig('compass-assistant');
+  // resolveConfigPath already handles the shared-config (Buranchi) case and the local fork, so
+  // every category reads through the same door. Until now only 'compass-assistant' was ever loaded
+  // here: Brand Context, Brand Voice, ICP and Brand Visual Identity were written and edited in
+  // Master Config but never reached any generation prompt.
+  const readConfig = (id) => { try { return fs.readFileSync(resolveConfigPath(org, id), 'utf8').trim(); } catch (e) { return ''; } };
+  const assistantInstructions = readConfig('compass-assistant');
+  const brandKnowledge = ['brand-context', 'brand-voice', 'icp', 'brand-visual-identity']
+    .map(id => ({ label: (CONFIG_LABELS[id] || {}).label || id, body: readConfig(id) }))
+    .filter(s => s.body && !/\(Fill this in via Master Config/.test(s.body))
+    .map(s => '### ' + s.label + '\n' + s.body)
+    .join('\n\n');
 
   const analyticsData = loadLatestAnalyticsSnapshot(org.slug);
   const recommendations = analyticsData ? computeContentRecommendations(analyticsData.data) : [];
@@ -1845,11 +1917,32 @@ ${directoryASummary || "Not synced yet — no existing asset library data is ava
   const ownPlanText = buildOwnPlanSample(org.slug);
 
   const today = new Date().toISOString().slice(0, 10);
-  const prompt = `${assistantInstructions}
+  // The assistant document was written as a Claude *chat* persona: it tells the model to ask intake
+  // questions when something is missing (sections 5 and 7) and to answer inside a fenced ```js code
+  // block (section 6). Neither is possible through this endpoint, and the log shows the collision
+  // producing empty runs. Rather than editing the user's own Master Config content, the conflict is
+  // named and settled here, where the API contract actually lives.
+  const systemInstruction = `${assistantInstructions}
 
 ---
 
-LIVE COMPETITOR RECOMMENDATIONS (computed from the current analytics data — use these as real basis for referenceCategory where relevant):
+OPERATING MODE FOR THIS REQUEST — these override anything above that conflicts with them:
+- You are being called through an API, not a chat. Nobody can answer a question, so never ask one.
+  When something you would normally ask about is missing, pick the most reasonable option given the
+  brand knowledge below and say so in that post's strategicRationale.
+- Do not wrap the answer in a code fence and do not add commentary. Section 6 describes a fenced
+  block for chat use; here the response body itself must be the JSON.
+- Never return an empty array. If the request reads as vague, still produce the requested number of
+  posts using your best reading of it.${brandKnowledge ? `
+
+---
+
+BRAND KNOWLEDGE (this client's Master Config — authoritative for facts, voice and visual system;
+where it disagrees with an example in the instructions above, this wins):
+
+${brandKnowledge}` : ''}`;
+
+  const prompt = `LIVE COMPETITOR RECOMMENDATIONS (computed from the current analytics data — use these as real basis for referenceCategory where relevant):
 ${recsText}
 
 ---
@@ -1876,72 +1969,67 @@ Read the context above carefully and figure out the actual dates yourself:
 
 Output ONLY a raw JSON array of post objects matching the Output Contract schema (Section 6 of your instructions). No markdown formatting, no code fences, no commentary — the response body must be valid JSON and nothing else.`;
 
-  async function callGemini(model) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }, ...imageParts] }],
-        generationConfig: { responseMimeType: 'application/json' }
-      })
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      const err = new Error(`Gemini request failed (${res.status}): ${text.slice(0, 300)}`);
-      err.status = res.status;
-      throw err;
-    }
-    return res.json();
-  }
+  return { systemInstruction, prompt, imageParts, totalCount, clamped, requestedTotal, maxPosts, focus, mode, brandKnowledge };
+}
 
+app.post('/api/generate-plan', async (req, res) => {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!org) return res.status(404).json({ ok: false, error: 'Organization not found' });
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-gemini-key.js, then try again.' });
+
+  // maxPostsPerProposal (Chat AI Agent > Guardrails) is a hard ceiling shared with the other
+  // generation surfaces; totalCount from the question box is a request within that ceiling, not
+  // a replacement for it. Gemini decides the actual dates itself from the context text (e.g.
+  // "tanggal kembar Agustus-September" should land on non-consecutive dates spanning two months,
+  // not just "the next N days from today").
+  const { systemInstruction, prompt, imageParts, totalCount, clamped, requestedTotal, maxPosts, focus } =
+    buildContentPlanPrompt(org, req.body || {});
+
+  const started = Date.now();
   try {
-    let data;
-    try {
-      data = await callGemini(GEMINI_MODEL);
-    } catch (e) {
-      // Transient capacity errors on the primary model — fall back to the lite variant once
-      // before giving up, so a busy model doesn't just fail the whole request outright.
-      if (e.status === 503 && GEMINI_MODEL !== 'gemini-flash-lite-latest') {
-        data = await callGemini('gemini-flash-lite-latest');
-      } else {
-        throw e;
-      }
-    }
-    const text = data.candidates && data.candidates[0] && data.candidates[0].content.parts.map(p => p.text || '').join('') || '';
-    let posts;
-    try {
-      posts = JSON.parse(text);
-    } catch (e) {
-      throw new Error('Gemini returned non-JSON output — try again, or narrow the focus text.');
-    }
-    if (!Array.isArray(posts)) throw new Error('Gemini did not return a posts array.');
+    // callGeminiJSON carries the three JSON-parse retries, the separate systemInstruction and the
+    // 503 fallback that this route never had — one bad parse used to lose the whole run.
+    const contents = [{ role: 'user', parts: [{ text: prompt }, ...imageParts] }];
+    const { parsed, tokenUsage, model } = await callGeminiJSON(apiKey, systemInstruction, contents);
+
+    let posts = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.posts) ? parsed.posts : null);
+    if (!posts) throw new Error('Gemini did not return a posts array.');
     if (posts.length > totalCount) posts = posts.slice(0, totalCount); // hard backstop behind the prompt-level cap
 
-    const usage = data.usageMetadata || {};
+    const audit = validateGeneratedPosts(org, posts);
     posts.forEach(p => { p.generatedBy = 'gemini'; });
+    const durationMs = Date.now() - started;
 
     logGeneration(org.slug, {
       timestamp: new Date().toISOString(),
-      agent: 'gemini',
-      model: data.modelVersion || GEMINI_MODEL,
+      agent: 'content-plan',
+      provider: 'gemini',
+      model,
+      durationMs,
       focus: focus || null,
       postCount: posts.length,
-      tokenUsage: {
-        prompt: usage.promptTokenCount || 0,
-        thoughts: usage.thoughtsTokenCount || 0,
-        output: usage.candidatesTokenCount || 0,
-        total: usage.totalTokenCount || 0
-      }
+      corrections: audit.corrections.length,
+      tokenUsage: { prompt: tokenUsage.prompt, thoughts: 0, output: tokenUsage.output, total: tokenUsage.total }
     });
 
     res.json({
-      ok: true, posts, tokenUsage: { total: usage.totalTokenCount || 0, prompt: usage.promptTokenCount || 0, output: usage.candidatesTokenCount || 0 },
-      model: data.modelVersion || GEMINI_MODEL,
+      ok: true, posts, tokenUsage: { total: tokenUsage.total, prompt: tokenUsage.prompt, output: tokenUsage.output },
+      model, durationMs, corrections: audit.corrections,
       note: clamped ? `Requested ${requestedTotal} posts, clamped to the org's guardrail max of ${maxPosts}.` : null
     });
   } catch (e) {
+    // Failures were invisible before: nothing was logged unless the run succeeded, so the history
+    // could not tell a bad prompt from an outage.
+    logGeneration(org.slug, {
+      timestamp: new Date().toISOString(),
+      agent: 'content-plan', provider: 'gemini', model: GEMINI_MODEL,
+      durationMs: Date.now() - started, focus: focus || null, postCount: 0, error: e.message,
+      tokenUsage: { prompt: 0, thoughts: 0, output: 0, total: 0 }
+    });
     res.status(400).json({ ok: false, error: e.message });
   }
+
 });
 
 // Writes the "Visual Copywriting" section of a Campaign Brief — headline/sub/caption, a few
@@ -2210,7 +2298,7 @@ async function callGeminiJSON(apiKey, systemInstruction, contentsOrText) {
     try {
       data = await call(GEMINI_MODEL);
     } catch (e) {
-      if (e.status === 503 && GEMINI_MODEL !== 'gemini-flash-lite-latest') data = await call('gemini-flash-lite-latest');
+      if (e.status === 503 && GEMINI_MODEL !== GEMINI_FALLBACK_MODEL) data = await call(GEMINI_FALLBACK_MODEL);
       else throw e;
     }
     const rawText = data.candidates && data.candidates[0] && data.candidates[0].content.parts.map(p => p.text || '').join('') || '';

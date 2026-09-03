@@ -99,6 +99,7 @@ async function init(){
   $('btn-brand-summary-generate').addEventListener('click', generateBrandSummary);
   $('btn-export').addEventListener('click', exportPlan);
   $('btn-ai-generate').addEventListener('click', generateAiPlan);
+  $('btn-copy-prompt').addEventListener('click', copyPlanPrompt);
   $('btn-ai-add-all').addEventListener('click', addAiRecommendationsToPlan);
   $('btn-ai-discard').addEventListener('click', discardAiRecommendations);
   $('btn-gen-attach').addEventListener('click', () => $('gen-file-input').click());
@@ -1100,6 +1101,38 @@ async function generateAiPlan(){
     }
   } catch(e){
     status.textContent = 'Request failed — try again.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Hands the assembled prompt to the clipboard instead of to a model, so a plan can be worked out
+// in a chat session and brought back through the "paste from a Claude chat session" box below.
+// Same form fields, same evidence — the only difference is who reads it.
+async function copyPlanPrompt(){
+  const btn = $('btn-copy-prompt');
+  const status = $('ai-generate-status');
+  btn.disabled = true;
+  status.textContent = 'Merakit prompt…';
+  const body = {
+    mode: genMode,
+    totalCount: parseInt($('gen-total-count').value, 10) || null,
+    feedCount: parseInt($('gen-feed-count').value, 10) || null,
+    storyCount: parseInt($('gen-story-count').value, 10) || null,
+    goal: $('gen-goal').value.trim(),
+    products: $('gen-products').value.trim(),
+    occasion: $('gen-occasion').value.trim(),
+    specialRequest: $('gen-special-request').value.trim(),
+    attachments: genAttachments
+  };
+  try {
+    const res = await api('/api/generate-plan/prompt', { method:'POST', body: JSON.stringify(body) });
+    if(!res || !res.ok){ status.textContent = (res && res.error) || 'Gagal merakit prompt.'; return; }
+    await navigator.clipboard.writeText(res.combined);
+    const imgNote = res.imageCount ? ` — ${res.imageCount} gambar tidak ikut tersalin, lampirkan manual di chat` : '';
+    status.textContent = `Prompt disalin: ~${res.approxTokens.toLocaleString()} token${imgNote}. Tempel ke chat, lalu bawa balik posts array-nya ke kotak paste di bawah.`;
+  } catch(e){
+    status.textContent = 'Tidak bisa menyalin — browser menolak akses clipboard.';
   } finally {
     btn.disabled = false;
   }
