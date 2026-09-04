@@ -1451,6 +1451,7 @@ function renderSavedBriefs(){
         </div>
         <div class="brief-saved-actions">
           <button class="btn btn-accent btn-sm" data-brief-board="${esc(b.id)}">Open Campaign Board</button>
+          <button class="btn btn-outline btn-sm" data-brief-plan="${esc(b.id)}">Plan from brief</button>
           <button class="btn btn-outline btn-sm" data-brief-canva="${esc(b.id)}">${b.canva ? 'Re-send to Canva' : 'Send to Canva'}</button>
           <button class="btn btn-outline btn-sm" data-brief-export="${esc(b.id)}">Export</button>
           <button class="btn btn-outline btn-sm" data-brief-delete="${esc(b.id)}">Delete</button>
@@ -1460,8 +1461,20 @@ function renderSavedBriefs(){
       <div id="brief-canva-status-${esc(b.id)}" class="rescrape-status" style="margin-top:6px;">
         ${b.canva && b.canva.editUrl ? `<a href="${esc(b.canva.editUrl)}" target="_blank" rel="noopener">Open in Canva ↗</a>` : ''}
       </div>
+      <div id="brief-plan-panel-${esc(b.id)}" class="brief-plan-panel" hidden>
+        ${renderBriefPlanPanel(b)}
+      </div>
     </div>
   `).join('');
+  $('brief-saved-list').querySelectorAll('[data-brief-plan]').forEach(btn => {
+    btn.addEventListener('click', () => toggleBriefPlanPanel(btn.dataset.briefPlan));
+  });
+  $('brief-saved-list').querySelectorAll('[data-brief-plan-copy]').forEach(btn => {
+    btn.addEventListener('click', () => copyBriefPlanPrompt(btn.dataset.briefPlanCopy));
+  });
+  $('brief-saved-list').querySelectorAll('[data-brief-plan-generate]').forEach(btn => {
+    btn.addEventListener('click', () => generatePlanFromBrief(btn.dataset.briefPlanGenerate));
+  });
   $('brief-saved-list').querySelectorAll('[data-brief-delete]').forEach(btn => {
     btn.addEventListener('click', () => deleteBrief(btn.dataset.briefDelete));
   });
@@ -1474,6 +1487,109 @@ function renderSavedBriefs(){
   $('brief-saved-list').querySelectorAll('[data-brief-board]').forEach(btn => {
     btn.addEventListener('click', () => openCampaignBoardPage(btn.dataset.briefBoard));
   });
+}
+
+// ---- Plan from brief -------------------------------------------------------------------------
+// The three things a brief usually leaves blank but a calendar cannot live without — window,
+// count/split, and whether assets exist — are asked here, per plan, instead of being guessed.
+// Everything else the model assumes and states in strategicRationale. Dates themselves are computed
+// server-side on the Sat/Mon/Wed/Thu cadence; the model never picks them.
+const PLAN_MONTHS = { january:0, jan:0, januari:0, february:1, feb:1, februari:1, march:2, mar:2, maret:2, april:3, apr:3, may:4, mei:4, june:5, jun:5, juni:5, july:6, jul:6, juli:6, august:7, aug:7, agustus:7, september:8, sep:8, sept:8, october:9, oct:9, oktober:9, november:10, nov:10, december:11, dec:11, desember:11 };
+function guessRangeFromTimeline(text){
+  const t = String(text || '').trim().toLowerCase();
+  const m = /([a-z]+)\s+(\d{4})/.exec(t);
+  if(!m || PLAN_MONTHS[m[1]] === undefined) return null;
+  const y = Number(m[2]), mo = PLAN_MONTHS[m[1]];
+  const pad = n => String(n).padStart(2,'0');
+  const last = new Date(y, mo + 1, 0).getDate();
+  return { start: `${y}-${pad(mo+1)}-01`, end: `${y}-${pad(mo+1)}-${pad(last)}` };
+}
+
+function renderBriefPlanPanel(b){
+  const id = esc(b.id);
+  const range = guessRangeFromTimeline(b.timeline) || { start: '', end: '' };
+  return `
+    <div class="brief-plan-grid">
+      <label class="f-label">Start<input type="date" id="bp-start-${id}" value="${range.start}"></label>
+      <label class="f-label">End<input type="date" id="bp-end-${id}" value="${range.end}"></label>
+      <label class="f-label">Posts<input type="number" min="1" max="30" id="bp-total-${id}" value="4"></label>
+      <label class="f-label">Feed<input type="number" min="0" id="bp-feed-${id}" placeholder="auto"></label>
+      <label class="f-label">Story<input type="number" min="0" id="bp-story-${id}" placeholder="auto"></label>
+      <label class="f-label">Assets
+        <select id="bp-mode-${id}">
+          <option value="beforeShoot">Not shot yet (shoot brief)</option>
+          <option value="existingDatabase">Use existing Directory A</option>
+        </select>
+      </label>
+    </div>
+    <p class="sub" style="margin:6px 0 8px;">Dates follow the Sat / Mon / Wed / Thu cadence and are fixed before the model runs — it only writes the posts.${b.timeline ? ` Window prefilled from the brief's timeline “${esc(b.timeline)}”.` : ' No timeline on this brief — set a window, or leave blank for the next 4 weeks.'}</p>
+    <div class="brief-plan-actions">
+      <button class="btn btn-accent btn-sm" data-brief-plan-generate="${id}">Generate plan</button>
+      <button class="btn btn-outline btn-sm" data-brief-plan-copy="${id}">Copy prompt for a chat session</button>
+      <span id="bp-status-${id}" class="rescrape-status"></span>
+    </div>`;
+}
+
+function toggleBriefPlanPanel(id){
+  const el = $('brief-plan-panel-' + id);
+  if(el) el.hidden = !el.hidden;
+}
+
+function readBriefPlanForm(id){
+  const v = k => { const el = $(`bp-${k}-${id}`); return el ? el.value.trim() : ''; };
+  return {
+    startDate: v('start') || null, endDate: v('end') || null,
+    totalCount: parseInt(v('total'), 10) || 4,
+    feedCount: v('feed') === '' ? null : parseInt(v('feed'), 10),
+    storyCount: v('story') === '' ? null : parseInt(v('story'), 10),
+    mode: v('mode') || 'beforeShoot'
+  };
+}
+
+async function copyBriefPlanPrompt(id){
+  const status = $('bp-status-' + id);
+  status.textContent = 'Merakit prompt…';
+  try {
+    const res = await api(`/api/campaign-briefs/${encodeURIComponent(id)}/plan/prompt`, { method:'POST', body: JSON.stringify(readBriefPlanForm(id)) });
+    if(!res || !res.ok){ status.textContent = (res && res.error) || 'Gagal merakit prompt.'; return; }
+    await navigator.clipboard.writeText(res.combined);
+    const slotLine = res.slots.map(s => `${s.date} ${s.format}`).join(', ');
+    status.textContent = `Prompt disalin (~${res.approxTokens.toLocaleString()} token) · ${res.slots.length} slot: ${slotLine}${res.meta.extended ? ' · window diperpanjang' : ''}. Tempel ke chat, bawa balik posts array-nya ke kotak paste di Content Plan.`;
+  } catch(e){
+    status.textContent = 'Tidak bisa menyalin — browser menolak akses clipboard.';
+  }
+}
+
+async function generatePlanFromBrief(id){
+  const status = $('bp-status-' + id);
+  const btn = $('brief-saved-list').querySelector(`[data-brief-plan-generate="${id}"]`);
+  if(btn) btn.disabled = true;
+  status.textContent = 'Menyusun slot dan menulis plan…';
+  try {
+    const res = await api(`/api/campaign-briefs/${encodeURIComponent(id)}/plan`, { method:'POST', body: JSON.stringify(readBriefPlanForm(id)) });
+    if(!res || !res.ok){ status.textContent = (res && res.error) || 'Gagal membuat plan.'; return; }
+    // Same enrichment the other two generation paths get, so references resolve to real assets.
+    const used = usedReferenceUrls();
+    const usedDir = usedDirectoryARefIds();
+    res.posts.forEach(item => {
+      if(!item.referencePost) item.referencePost = autoResolveReferenceForPost(item, used);
+      if(item.referencePost) used.add(item.referencePost.url);
+      if(!item.directoryARef) item.directoryARef = autoResolveDirectoryAReference(item, usedDir);
+      if(item.directoryARef) usedDir.add(item.directoryARef.id);
+    });
+    aiRecommendations = res.posts;
+    renderAiRecommendations();
+    const missing = res.missingSlots && res.missingSlots.length ? ` · ${res.missingSlots.length} slot kosong (${res.missingSlots.join(', ')})` : '';
+    const fixes = res.corrections && res.corrections.length ? ` · ${res.corrections.length} field dikoreksi` : '';
+    $('ai-generate-status').textContent = `Plan dari brief “${res.brief.title}” — ${res.posts.length}/${res.slots.length} post · ${res.window.start} → ${res.window.end} · ${(res.durationMs/1000).toFixed(1)} dtk · ${res.tokenUsage.total.toLocaleString()} token · ${res.model}${missing}${fixes}`;
+    status.textContent = `Selesai — ${res.posts.length} post. Dibuka di Content Plan untuk direview.`;
+    showPage('generate');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch(e){
+    status.textContent = 'Request gagal — coba lagi.';
+  } finally {
+    if(btn) btn.disabled = false;
+  }
 }
 
 async function sendBriefToCanva(id){

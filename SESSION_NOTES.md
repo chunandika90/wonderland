@@ -125,3 +125,60 @@ lalu menambal dengan tanggal acak — persis yang dilarang prompt-nya sendiri), 
 1/4 jatuh di akhir pekan. Stabil, bukan variasi. Artinya masalahnya bukan konteks melainkan
 kemampuan model di tier `gemini-flash-lite`. Langkah berikutnya menaikkan tier dulu; Schedule Agent
 terpisah baru terbukti perlu kalau itu pun gagal.
+
+## Plan dari Campaign Brief (2026-09-04)
+Fitur baru: tombol **Plan from brief** di tiap kartu brief tersimpan (halaman Campaign Brief) membuka
+panel kecil — window tanggal (terisi otomatis dari `timeline` brief kalau bisa dibaca), jumlah post,
+split feed/story, dan mode aset — lalu dua tombol: **Generate plan** dan **Copy prompt for a chat
+session**. Hasil generate masuk ke panel rekomendasi Content Plan yang sudah ada (review → Add all →
+kalender), tiap post bertag `briefId`/`briefTitle`/`generatedBy: 'gemini-brief'`.
+
+Tujuh keputusan desain (hasil sesi grilling, dijalankan dengan rekomendasi default):
+1. **Tanggal dihitung kode, bukan model.** `buildBriefPlanSlots()` berjalan di cadence baseline
+   Buranchi sendiri (Sat/Mon/Wed/Thu, feed/story bergantian — assistant doc §4), menghormati split
+   eksplisit, dan memperpanjang window kalau terlalu pendek (dilaporkan di `meta.notes`, bukan diam).
+   Model hanya mengisi konten per `slotId`; `alignPostsToSlots()` menstempel ulang date/day/format
+   setelahnya. Ini menutup bug tanggal (2/4 tanggal kembar, 1/4 weekend di flash-lite) **tanpa**
+   menaikkan tier dan tanpa Schedule Agent LLM.
+2. **Brief tipis → 3 field ditanya per plan, sisanya diasumsikan dan dinyatakan.** 7 dari 9 brief
+   nyata tidak punya timeline; objective ada yang satu kata. Window, jumlah+split, dan mode aset
+   ditanya di panel; hal lain (audience, key facts) diisi model dan dicatat di `strategicRationale`.
+   Tidak ada "tanya balik" — sudah terbukti menghasilkan run kosong lewat API.
+3. **Copy brief = north star.** `visualCopywriting` (headline/sub/caption) + `strategySummary` masuk
+   sebagai tulang punggung; tiap post wajib jadi *beat* berbeda dari promise yang sama.
+4. **Dua pintu dari satu builder.** `buildBriefPlanPrompt()` melayani `POST
+   /api/campaign-briefs/:id/plan/prompt` (tempel ke chat, bawa balik lewat kotak paste) dan `POST
+   /api/campaign-briefs/:id/plan` (callGeminiJSON langsung). Keputusan provider tidak memengaruhinya.
+5. **Referensi gambar dideskripsikan sekali**, disimpan sebagai `referenceImageNotes` di brief, dan
+   masuk prompt sebagai teks — jadi ikut ke jalur tempel juga. Ketiga bentuk referensi (`upload`
+   inline, `competitor` → `analytics-images/`, `internal` → `directory-a/thumbs/`) diresolusi lewat
+   `resolveBriefRefImageInline()` yang sudah dipakai Campaign Board. Gagal deskripsi tidak pernah
+   memblokir plan.
+6. **Aturan brand ikut sebagai constraint eksplisit**: venue sebagai hook utama, dua audiens, price
+   advantage, dan **setiap post wajib punya jalur capture data di `cta`** (brand-context aturan 5).
+7. Buranchi dulu, tapi kodenya org-agnostik lewat `resolveConfigPath`.
+
+Refactor ikutan: `buildBrandSystemInstruction(org)` dikeluarkan dari `buildContentPlanPrompt` supaya
+kedua generator memakai system instruction yang persis sama (assistant doc + OPERATING MODE + 4 file
+Master Config).
+
+### Hasil uji (buranchi, brief nyata "Matcha at ECO8" — timeline "December 2026", 3 referensi)
+- Slot: Dec 2 Wed feed · Dec 3 Thu story · Dec 5 Sat feed · Dec 7 Mon story — **tanggal 100% benar**,
+  dua kali generate. Brief tanpa timeline ("Weekend Slow Brunch Ritual") → window default 4 minggu,
+  Sep 5 Sat / 7 Mon / 9 Wed / 10 Thu.
+- Generate: **4/4 post, 0 slot kosong, 0 koreksi validator**, 6,7–12,5 dtk, ~11,5–11,7k token,
+  prompt ~10,2–10,5k token. Semua `cta` punya mekanisme capture (WhatsApp list, DM, poll+opt-in).
+- `strategicRationale` menyatakan asumsi: "Assumed Dec 2 slot serves as the introductory lifestyle
+  hook targeting moms…". `directoryAKeyword`/`referenceCategory` semua valid.
+- Image notes: 3/3 terdeskripsi setelah fix resolver (percobaan pertama 0/3 karena filter awal hanya
+  mengenali `upload`).
+
+### Catatan & tindak lanjut
+- URL referensi yang tersimpan di brief masih berprefix `/compass/media/...` (BASE_PATH lama); tidak
+  berpengaruh karena resolusi memakai basename/refKey, tapi data lama itu belum dibersihkan.
+- Headline hasil model cenderung Title Case; assistant doc §6 memberi contoh sentence case. Belum
+  dipaksa lewat validator.
+- Belum dilakukan: plan sebagai *turn* di Campaign Board (board punya payload `board-version` sendiri
+  yang harus diajari merender plan) — hasil sementara masuk panel rekomendasi Content Plan.
+- Cadence hari masih konstanta global (`BRIEF_PLAN_CADENCE_DAYS`); untuk org lain kemungkinan perlu
+  jadi setelan per-org di guardrails.

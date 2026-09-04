@@ -725,3 +725,12 @@ a.post-link:hover{text-decoration:underline;}
   .page{padding:22px 18px 50px;}
   .topbar{padding:12px 18px;}
 }
+
+/* Plan-from-brief panel (Campaign Brief page) */
+.brief-plan-panel{margin-top:12px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--canvas)}
+.brief-plan-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.brief-plan-grid .f-label{display:flex;flex-direction:column;gap:4px;font-size:11.5px}
+.brief-plan-grid input,.brief-plan-grid select{width:100%;min-width:0;padding:7px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--fg);font:inherit;font-size:13px}
+.brief-plan-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+@media (max-width:860px){.brief-plan-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:520px){.brief-plan-grid{grid-template-columns:1fr 1fr}}

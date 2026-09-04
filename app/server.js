@@ -525,7 +525,7 @@ app.post('/api/posts/bulk', (req, res) => {
   const byAgent = {};
   incoming.forEach(p => { const a = p.generatedBy || 'claude'; byAgent[a] = (byAgent[a] || 0) + 1; });
   Object.entries(byAgent).forEach(([agent, count]) => {
-    if (agent === 'gemini' || agent === 'gemini-chat' || agent === 'intelligence') return; // already logged their own generation turn
+    if (agent === 'gemini' || agent === 'gemini-brief' || agent === 'gemini-chat' || agent === 'intelligence') return; // already logged their own generation turn
     logGeneration(req.session.orgSlug, {
       timestamp: batchTime, agent, requestText: agent === 'claude' ? '(drafted in a Claude chat session)' : null,
       postCount: count, tokenUsage: null
@@ -1826,6 +1826,48 @@ function validateGeneratedPosts(org, posts) {
   return { corrections };
 }
 
+// The system instruction every Content Plan style generation shares: the assistant document, the
+// API operating mode, and the four Master Config knowledge files. resolveConfigPath already handles
+// the shared-config (Buranchi) case and the local fork, so every category reads through one door.
+// Until Fase 1 only 'compass-assistant' was ever loaded: Brand Context, Brand Voice, ICP and Brand
+// Visual Identity were edited in Master Config but never reached a generation prompt.
+function buildBrandSystemInstruction(org) {
+  const readConfig = (id) => { try { return fs.readFileSync(resolveConfigPath(org, id), 'utf8').trim(); } catch (e) { return ''; } };
+  const assistantInstructions = readConfig('compass-assistant');
+  const brandKnowledge = ['brand-context', 'brand-voice', 'icp', 'brand-visual-identity']
+    .map(id => ({ label: (CONFIG_LABELS[id] || {}).label || id, body: readConfig(id) }))
+    .filter(s => s.body && !/\(Fill this in via Master Config/.test(s.body))
+    .map(s => '### ' + s.label + '\n' + s.body)
+    .join('\n\n');
+
+  // The assistant document was written as a Claude *chat* persona: it tells the model to ask intake
+  // questions when something is missing (sections 5 and 7) and to answer inside a fenced ```js code
+  // block (section 6). Neither is possible through an API call, and the log shows the collision
+  // producing empty runs. Rather than editing the user's own Master Config content, the conflict is
+  // named and settled here, where the API contract actually lives.
+  const systemInstruction = `${assistantInstructions}
+
+---
+
+OPERATING MODE FOR THIS REQUEST — these override anything above that conflicts with them:
+- You are being called through an API, not a chat. Nobody can answer a question, so never ask one.
+  When something you would normally ask about is missing, pick the most reasonable option given the
+  brand knowledge below and say so in that post's strategicRationale.
+- Do not wrap the answer in a code fence and do not add commentary. Section 6 describes a fenced
+  block for chat use; here the response body itself must be the JSON.
+- Never return an empty array. If the request reads as vague, still produce the requested number of
+  posts using your best reading of it.${brandKnowledge ? `
+
+---
+
+BRAND KNOWLEDGE (this client's Master Config — authoritative for facts, voice and visual system;
+where it disagrees with an example in the instructions above, this wins):
+
+${brandKnowledge}` : ''}`;
+
+  return { assistantInstructions, brandKnowledge, systemInstruction };
+}
+
 // Assembles everything a Content Plan request needs: the assistant instructions and brand
 // knowledge as a system instruction, and the live evidence (competitor recommendations, real
 // scraped samples, the org's own scheduled posts, Directory A, the shoot/existing-asset mode
@@ -1892,17 +1934,7 @@ EXISTING ASSET LIBRARY (synced from the client's Google Drive — Directory A):
 ${directoryASummary || "Not synced yet — no existing asset library data is available. Say so plainly in a post's strategicRationale rather than inventing folder names, and fall back to Master Config's brand/product descriptions only."}`
     : `SHOOT MODE: These posts have NOT been photographed yet — this plan doubles as a shoot brief. For every post, the "photo" field must be concrete, actionable direction for the photographer/videographer: subject, framing/angle, lighting, props, location, and any reference points (competitor posts, mood boards, style) to shoot toward. Describe what needs to be captured, not a photo that already exists.`;
 
-  // resolveConfigPath already handles the shared-config (Buranchi) case and the local fork, so
-  // every category reads through the same door. Until now only 'compass-assistant' was ever loaded
-  // here: Brand Context, Brand Voice, ICP and Brand Visual Identity were written and edited in
-  // Master Config but never reached any generation prompt.
-  const readConfig = (id) => { try { return fs.readFileSync(resolveConfigPath(org, id), 'utf8').trim(); } catch (e) { return ''; } };
-  const assistantInstructions = readConfig('compass-assistant');
-  const brandKnowledge = ['brand-context', 'brand-voice', 'icp', 'brand-visual-identity']
-    .map(id => ({ label: (CONFIG_LABELS[id] || {}).label || id, body: readConfig(id) }))
-    .filter(s => s.body && !/\(Fill this in via Master Config/.test(s.body))
-    .map(s => '### ' + s.label + '\n' + s.body)
-    .join('\n\n');
+  const { brandKnowledge, systemInstruction } = buildBrandSystemInstruction(org);
 
   const analyticsData = loadLatestAnalyticsSnapshot(org.slug);
   const recommendations = analyticsData ? computeContentRecommendations(analyticsData.data) : [];
@@ -1917,31 +1949,6 @@ ${directoryASummary || "Not synced yet — no existing asset library data is ava
   const ownPlanText = buildOwnPlanSample(org.slug);
 
   const today = new Date().toISOString().slice(0, 10);
-  // The assistant document was written as a Claude *chat* persona: it tells the model to ask intake
-  // questions when something is missing (sections 5 and 7) and to answer inside a fenced ```js code
-  // block (section 6). Neither is possible through this endpoint, and the log shows the collision
-  // producing empty runs. Rather than editing the user's own Master Config content, the conflict is
-  // named and settled here, where the API contract actually lives.
-  const systemInstruction = `${assistantInstructions}
-
----
-
-OPERATING MODE FOR THIS REQUEST — these override anything above that conflicts with them:
-- You are being called through an API, not a chat. Nobody can answer a question, so never ask one.
-  When something you would normally ask about is missing, pick the most reasonable option given the
-  brand knowledge below and say so in that post's strategicRationale.
-- Do not wrap the answer in a code fence and do not add commentary. Section 6 describes a fenced
-  block for chat use; here the response body itself must be the JSON.
-- Never return an empty array. If the request reads as vague, still produce the requested number of
-  posts using your best reading of it.${brandKnowledge ? `
-
----
-
-BRAND KNOWLEDGE (this client's Master Config — authoritative for facts, voice and visual system;
-where it disagrees with an example in the instructions above, this wins):
-
-${brandKnowledge}` : ''}`;
-
   const prompt = `LIVE COMPETITOR RECOMMENDATIONS (computed from the current analytics data — use these as real basis for referenceCategory where relevant):
 ${recsText}
 
@@ -2030,6 +2037,311 @@ app.post('/api/generate-plan', async (req, res) => {
     res.status(400).json({ ok: false, error: e.message });
   }
 
+});
+
+// ---------------------------------------------------------------------------------------------
+// Content plan FROM a campaign brief.
+//
+// Three decisions shape this, all from the same reasoning: (1) dates are computed by code, never
+// chosen by the model — date arithmetic is exactly where the current model tier fails, and a plan
+// whose slots are fixed up front cannot drift; (2) the brief's own copy (headline/sub/caption) and
+// strategy summary are the north star every post derives from, so this is a plan *from* the brief
+// rather than a plan that happens to mention it; (3) the same builder feeds two doors — a prompt
+// to paste into a chat session, and a direct model call — so nothing is lost whichever the team
+// ends up preferring.
+// ---------------------------------------------------------------------------------------------
+
+const BRIEF_PLAN_CADENCE_DAYS = [6, 1, 3, 4]; // Sat / Mon / Wed / Thu — Buranchi's own baseline (assistant doc §4)
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = {
+  january: 0, jan: 0, januari: 0, february: 1, feb: 1, februari: 1, march: 2, mar: 2, maret: 2,
+  april: 3, apr: 3, may: 4, mei: 4, june: 5, jun: 5, juni: 5, july: 6, jul: 6, juli: 6,
+  august: 7, aug: 7, agustus: 7, september: 8, sep: 8, sept: 8, october: 9, oct: 9, oktober: 9,
+  november: 10, nov: 10, december: 11, dec: 11, desember: 11
+};
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function parseIsoDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '').trim());
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+// Brief timelines are free text and usually empty ("", "December 2026", "september 2026"). Read a
+// month (English or Indonesian) or an explicit ISO range; anything else returns null and the
+// caller falls back to a sensible window. Never guess from prose the model could misread.
+function parseBriefTimeline(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return null;
+  const range = /(\d{4}-\d{2}-\d{2})\s*(?:to|-|–|—|sampai|s\/d|hingga)\s*(\d{4}-\d{2}-\d{2})/.exec(t);
+  if (range) {
+    const a = parseIsoDate(range[1]), b = parseIsoDate(range[2]);
+    if (a && b && b >= a) return { start: a, end: b, source: 'range' };
+  }
+  const month = /([a-z]+)\s+(\d{4})/.exec(t);
+  if (month && MONTH_NAMES[month[1]] !== undefined) {
+    const y = Number(month[2]), m = MONTH_NAMES[month[1]];
+    return { start: new Date(y, m, 1), end: new Date(y, m + 1, 0), source: 'month' };
+  }
+  return null;
+}
+
+// Deterministic slot generation. Walks the window on cadence days, alternates feed/story (or honours
+// an explicit split), and extends the window forward if it is too short for the requested count —
+// saying so in meta rather than silently returning fewer posts.
+function buildBriefPlanSlots(brief, opts) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const parsed = parseBriefTimeline(brief.timeline);
+  let start = parseIsoDate(opts.startDate) || (parsed && parsed.start) || null;
+  let end = parseIsoDate(opts.endDate) || (parsed && parsed.end) || null;
+  const meta = { source: opts.startDate || opts.endDate ? 'form' : (parsed ? parsed.source : 'default'), extended: false, notes: [] };
+
+  if (!start) { start = new Date(today); start.setDate(start.getDate() + 1); }
+  if (!end) { end = new Date(start); end.setDate(end.getDate() + 27); }
+  if (start < today) { meta.notes.push(`Window started in the past (${isoDate(start)}); slots begin tomorrow instead.`); start = new Date(today); start.setDate(start.getDate() + 1); }
+  if (end < start) { end = new Date(start); end.setDate(end.getDate() + 27); }
+
+  const total = Math.max(1, Number(opts.totalCount) || 4);
+  let feedQuota = Number.isFinite(Number(opts.feedCount)) && opts.feedCount !== null && opts.feedCount !== '' ? Number(opts.feedCount) : null;
+  let storyQuota = Number.isFinite(Number(opts.storyCount)) && opts.storyCount !== null && opts.storyCount !== '' ? Number(opts.storyCount) : null;
+  if (feedQuota !== null && storyQuota === null) storyQuota = Math.max(0, total - feedQuota);
+  if (storyQuota !== null && feedQuota === null) feedQuota = Math.max(0, total - storyQuota);
+  if (feedQuota !== null && feedQuota + storyQuota !== total) { meta.notes.push(`feed ${feedQuota} + story ${storyQuota} ≠ ${total}; split adjusted to alternate.`); feedQuota = storyQuota = null; }
+
+  const slots = [];
+  let cursor = new Date(start);
+  let nextFormat = 'feed';
+  let safety = 0;
+  while (slots.length < total && safety++ < 400) {
+    if (cursor > end) { end = new Date(cursor); meta.extended = true; }
+    if (BRIEF_PLAN_CADENCE_DAYS.includes(cursor.getDay())) {
+      let format = nextFormat;
+      if (feedQuota !== null) {
+        const feedUsed = slots.filter(s => s.format === 'feed').length;
+        const storyUsed = slots.filter(s => s.format === 'story').length;
+        if (format === 'feed' && feedUsed >= feedQuota) format = 'story';
+        if (format === 'story' && storyUsed >= storyQuota) format = 'feed';
+      }
+      slots.push({
+        slotId: `S${slots.length + 1}`,
+        dateISO: isoDate(cursor),
+        date: `${MONTH_LABELS[cursor.getMonth()]} ${cursor.getDate()}`,
+        day: DAY_LABELS[cursor.getDay()],
+        format
+      });
+      nextFormat = format === 'feed' ? 'story' : 'feed';
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  if (meta.extended) meta.notes.push(`Window too short for ${total} posts on the Sat/Mon/Wed/Thu cadence; extended to ${isoDate(end)}.`);
+  return { slots, window: { start: isoDate(start), end: isoDate(end) }, meta };
+}
+
+// Reference images cannot travel through a pasted prompt, and re-sending them on every generate is
+// wasteful. Describe them once, store the notes on the brief, reuse forever. Failure here must never
+// block a plan — the notes are a bonus, not a dependency.
+async function describeBriefReferenceImages(org, brief, apiKey) {
+  // Uploads, competitor picks and Directory A picks all resolve to bytes through the same helper
+  // Campaign Board's Judge uses, so every kind of reference gets described, not just uploads.
+  const images = (brief.referenceImages || [])
+    .map(ref => ({ ref, inline: ref ? resolveBriefRefImageInline(org, ref) : null }))
+    .filter(x => x.inline && x.inline.inlineData);
+  if (!images.length || brief.referenceImageNotes || !apiKey) return brief.referenceImageNotes || null;
+  try {
+    const parts = [{ text: `You are an art director's assistant. For EACH image below, in order, write one dense sentence (max 40 words) describing what a designer would need to reproduce the look: subject, composition, palette, lighting, typography if any, mood. Return ONLY JSON: {"notes":[{"index":1,"note":"..."}, ...]} with exactly ${images.length} entries.` }];
+    images.forEach(i => parts.push(i.inline));
+    const { parsed } = await callGeminiJSON(apiKey, 'Return only valid JSON.', [{ role: 'user', parts }]);
+    const notes = Array.isArray(parsed && parsed.notes) ? parsed.notes : [];
+    if (!notes.length) return null;
+    const out = notes.map((n, i) => ({ name: (images[i] && images[i].ref && images[i].ref.name) || `image ${i + 1}`, note: String(n.note || '').trim() })).filter(n => n.note);
+    const briefs = readCampaignBriefs(org.slug);
+    const target = briefs.find(b => b.id === brief.id);
+    if (target) { target.referenceImageNotes = out; target.referenceImageNotesAt = new Date().toISOString(); writeCampaignBriefs(org.slug, briefs); }
+    brief.referenceImageNotes = out;
+    return out;
+  } catch (e) {
+    return null;
+  }
+}
+
+function buildBriefPlanPrompt(org, brief, slots, opts) {
+  const { systemInstruction } = buildBrandSystemInstruction(org);
+  const analyticsData = loadLatestAnalyticsSnapshot(org.slug);
+  const recommendations = analyticsData ? computeContentRecommendations(analyticsData.data) : [];
+  const recsText = recommendations.length ? recommendations.map(r => '- ' + r.text).join('\n') : 'No competitor recommendations available yet — proceed using standing rules only.';
+  const competitorSampleText = buildCompetitorSample(analyticsData ? analyticsData.data : null);
+  const ownPlanText = buildOwnPlanSample(org.slug);
+  const mode = opts.mode === 'existingDatabase' ? 'existingDatabase' : 'beforeShoot';
+  const directoryASummary = buildDirectoryASummary(org.slug);
+
+  const copy = brief.visualCopywriting || {};
+  const northStar = [
+    copy.headline ? `Headline: ${copy.headline}` : (brief.draftHeadline ? `Headline: ${brief.draftHeadline}` : ''),
+    copy.sub ? `Sub: ${copy.sub}` : (brief.draftSub ? `Sub: ${brief.draftSub}` : ''),
+    copy.caption ? `Caption: ${copy.caption}` : (brief.draftCaption ? `Caption: ${brief.draftCaption}` : '')
+  ].filter(Boolean).join('\n');
+
+  const imageNotes = (brief.referenceImageNotes || []).map((n, i) => `${i + 1}. ${n.name}: ${n.note}`).join('\n');
+
+  const briefBlock = `CAMPAIGN BRIEF (the spine of this plan — every post must be a branch of it)
+Title: ${brief.title || ''}
+Background: ${brief.background || '(not given)'}
+Audience: ${brief.audience || '(not given — infer from ICP and say so)'}
+Objective: ${brief.objective || '(not given — infer from background and say so)'}
+Channels: ${brief.channels || 'Instagram'}
+Terms / constraints: ${brief.terms || '(none)'}
+Strategy summary: ${brief.strategySummary || '(none)'}
+${northStar ? `\nNORTH-STAR COPY (from the brief — the tone, promise and angle every post derives from; vary the wording per post, never contradict it):\n${northStar}` : ''}
+${imageNotes ? `\nREFERENCE IMAGE NOTES (what the client attached as visual direction, described for you):\n${imageNotes}` : ''}`;
+
+  const slotsBlock = `SLOTS (fixed by the planner — you MUST return exactly ${slots.length} posts, one per slot, using each slot's slotId, date, day and format EXACTLY as given; never change, add or drop a slot):
+${slots.map(s => `- ${s.slotId}: ${s.date} (${s.day}) · ${s.format}`).join('\n')}`;
+
+  const modeBlock = mode === 'existingDatabase'
+    ? `EXISTING-ASSET MODE: build every post around content that already exists — do NOT invent new shoot direction. Set "directoryAKeyword" to one of the EXACT category names below and describe in "photo" which existing shot to reuse.\n\nEXISTING ASSET LIBRARY (Directory A):\n${directoryASummary || 'Not synced yet — say so in strategicRationale rather than inventing folder names.'}`
+    : `SHOOT MODE: nothing has been photographed yet — this plan doubles as the shoot brief. "photo" must be concrete direction: subject, framing, lighting, props, location, and what to shoot toward.`;
+
+  const prompt = `${briefBlock}
+
+---
+
+${slotsBlock}
+
+---
+
+LIVE COMPETITOR RECOMMENDATIONS (computed from current analytics — use as real basis for referenceCategory where relevant):
+${recsText}
+
+---
+
+REAL COMPETITOR POST SAMPLES (top performers per category — inform tone/angle/format, never copy):
+${competitorSampleText}
+
+---
+
+ALREADY-SCHEDULED POSTS (do not repeat these headlines or angles):
+${ownPlanText}
+
+---
+
+${modeBlock}
+
+---
+
+TASK: Today is ${new Date().toISOString().slice(0, 10)}. Fill the ${slots.length} slots above with a coherent campaign arc for this brief:
+- Each post is a branch of the north-star copy: a different beat of the same promise (tease → reveal → proof → invitation, or whatever arc fits the objective). No two posts may share a headline idea.
+- Apply the brand's standing rules: lead with the venue (pool, greenery, space), not the product alone; imply the price advantage where natural; respect the two audiences; and give EVERY post a concrete data-capture or conversion path in "cta" (WhatsApp opt-in, booking form, save + DM, etc.).
+- Mark "event": true only for private-event or community-class content.
+- Where the brief left something unsaid (audience, key facts, assets), choose the most reasonable option and state that assumption in "strategicRationale" — never ask, never leave a field blank.
+- Set "referenceCategory" only to an exact category string from the competitor samples above, or "" if none genuinely applies. Set "directoryAKeyword" only to an exact Directory A category name, or "".
+- Include "slotId" in every post object, plus every field of the Output Contract (Section 6). Use "" or [] for anything not applicable — never null, never a missing key.
+
+Output ONLY a raw JSON array of ${slots.length} post objects. No markdown, no code fences, no commentary.`;
+
+  return { systemInstruction, prompt, mode };
+}
+
+// Re-stamp what the planner owns (date/day/format) from the slots, so the model cannot drift them;
+// pair by slotId, falling back to order. Report slots that came back empty instead of hiding them.
+function alignPostsToSlots(posts, slots) {
+  const bySlot = new Map();
+  posts.forEach((p, i) => {
+    if (!p || typeof p !== 'object') return;
+    const key = String(p.slotId || '').trim();
+    if (key && slots.some(s => s.slotId === key) && !bySlot.has(key)) bySlot.set(key, p);
+    else if (!key || !slots.some(s => s.slotId === key)) { const free = slots.find(s => !bySlot.has(s.slotId)); if (free) bySlot.set(free.slotId, p); }
+  });
+  const aligned = [];
+  const missing = [];
+  slots.forEach(s => {
+    const p = bySlot.get(s.slotId);
+    if (!p) { missing.push(s.slotId); return; }
+    p.slotId = s.slotId; p.date = s.date; p.dateISO = s.dateISO; p.day = s.day; p.format = s.format;
+    aligned.push(p);
+  });
+  return { aligned, missing };
+}
+
+function loadBriefForRoute(req, res) {
+  const org = findOrgBySlug(req.session.orgSlug);
+  if (!org) { res.status(404).json({ ok: false, error: 'Organization not found' }); return null; }
+  const brief = readCampaignBriefs(org.slug).find(b => b.id === req.params.id);
+  if (!brief) { res.status(404).json({ ok: false, error: 'Brief not found' }); return null; }
+  return { org, brief };
+}
+
+function briefPlanOptions(body, org) {
+  const guardrails = loadGuardrails(org.slug);
+  const requested = parseInt(body.totalCount, 10);
+  const totalCount = Math.min(Number.isFinite(requested) && requested > 0 ? requested : 4, guardrails.maxPostsPerProposal);
+  return {
+    totalCount, clamped: Number.isFinite(requested) && requested > guardrails.maxPostsPerProposal, maxPosts: guardrails.maxPostsPerProposal,
+    feedCount: body.feedCount, storyCount: body.storyCount, startDate: body.startDate, endDate: body.endDate, mode: body.mode
+  };
+}
+
+// Door 1: the prompt, to paste into a chat session. Posts come back through the existing paste box.
+app.post('/api/campaign-briefs/:id/plan/prompt', async (req, res) => {
+  const ctx = loadBriefForRoute(req, res); if (!ctx) return;
+  const { org, brief } = ctx;
+  try {
+    const opts = briefPlanOptions(req.body || {}, org);
+    const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+    await describeBriefReferenceImages(org, brief, apiKey);
+    const { slots, window, meta } = buildBriefPlanSlots(brief, opts);
+    const built = buildBriefPlanPrompt(org, brief, slots, opts);
+    const combined = built.systemInstruction + '\n\n' + built.prompt;
+    res.json({ ok: true, prompt: built.prompt, systemInstruction: built.systemInstruction, combined, slots, window, meta, mode: built.mode,
+      chars: combined.length, approxTokens: Math.round(combined.length / 4),
+      note: opts.clamped ? `Requested more than the org's guardrail max of ${opts.maxPosts}; clamped.` : null });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: e.message });
+  }
+});
+
+// Door 2: generate directly. Same builder, same slots; the planner re-stamps dates after the model.
+app.post('/api/campaign-briefs/:id/plan', async (req, res) => {
+  const ctx = loadBriefForRoute(req, res); if (!ctx) return;
+  const { org, brief } = ctx;
+  const apiKey = org.geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(400).json({ ok: false, error: 'Gemini API key not configured. Add one via scripts/set-gemini-key.js, then try again.' });
+  const started = Date.now();
+  const opts = briefPlanOptions(req.body || {}, org);
+  let slots = [];
+  try {
+    await describeBriefReferenceImages(org, brief, apiKey);
+    const built = buildBriefPlanSlots(brief, opts);
+    slots = built.slots;
+    const { systemInstruction, prompt } = buildBriefPlanPrompt(org, brief, slots, opts);
+    const { parsed, tokenUsage, model } = await callGeminiJSON(apiKey, systemInstruction, [{ role: 'user', parts: [{ text: prompt }] }]);
+
+    const raw = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.posts) ? parsed.posts : null);
+    if (!raw) throw new Error('Gemini did not return a posts array.');
+    const { aligned, missing } = alignPostsToSlots(raw, slots);
+    const audit = validateGeneratedPosts(org, aligned);
+    aligned.forEach(p => { p.generatedBy = 'gemini-brief'; p.briefId = brief.id; p.briefTitle = brief.title || ''; });
+    const durationMs = Date.now() - started;
+
+    logGeneration(org.slug, {
+      timestamp: new Date().toISOString(), agent: 'brief-plan', provider: 'gemini', model, durationMs,
+      focus: `brief: ${brief.title || brief.id}`, postCount: aligned.length, missingSlots: missing.length, corrections: audit.corrections.length,
+      tokenUsage: { prompt: tokenUsage.prompt, thoughts: 0, output: tokenUsage.output, total: tokenUsage.total }
+    });
+
+    res.json({ ok: true, posts: aligned, slots, window: built.window, meta: built.meta, missingSlots: missing,
+      corrections: audit.corrections, tokenUsage: { total: tokenUsage.total, prompt: tokenUsage.prompt, output: tokenUsage.output }, model, durationMs,
+      brief: { id: brief.id, title: brief.title },
+      note: opts.clamped ? `Requested more than the org's guardrail max of ${opts.maxPosts}; clamped.` : null });
+  } catch (e) {
+    logGeneration(org.slug, {
+      timestamp: new Date().toISOString(), agent: 'brief-plan', provider: 'gemini', model: GEMINI_MODEL,
+      durationMs: Date.now() - started, focus: `brief: ${brief.title || brief.id}`, postCount: 0, error: e.message,
+      tokenUsage: { prompt: 0, thoughts: 0, output: 0, total: 0 }
+    });
+    res.status(400).json({ ok: false, error: e.message, slots });
+  }
 });
 
 // Writes the "Visual Copywriting" section of a Campaign Brief — headline/sub/caption, a few
